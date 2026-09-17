@@ -1297,7 +1297,7 @@ def live_row(next_id):
   // along in the same payload — populating this row's expandable detail
   // panel (same click-to-open behavior as every finished row) well before
   // training/scoring finish, not just a phase name in the collapsed row.
-  var RAW='https://raw.githubusercontent.com/akaalias/beeline/status/phase.json';
+  var RAW='https://raw.githubusercontent.com/akaalias/ballpark/status/phase.json';
   function freshen(j){{
     // GitHub Pages pins Cache-Control to 10 min and headers are not
     // configurable — but the CDN caches per-URL, so redirecting to a
@@ -1533,7 +1533,7 @@ def page_header(title, sub_html):
 # Social sharing (Open Graph + Twitter cards). One shared card image — a
 # mosaic of real geo-tiles with the headline — generated once, locally, into
 # assets/social/card.jpg (CI has no raster; same scheme as the tile grids).
-SITE_URL = "https://alexisrondeau.me/beeline/"
+SITE_URL = "https://alexisrondeau.me/ballpark/"
 
 
 def social_meta(path, title, desc):
@@ -1578,7 +1578,7 @@ def topnav(active, root=False):
                                ("cta" if key == "flight" else "")) if c]
         cls = f" class='{' '.join(classes)}'" if classes else ""
         links.append(f"<a href='{hrefs[key]}'{cls}>{label}</a>")
-    return ("<nav class='topnav'><span class='brand'>Beeline</span>"
+    return ("<nav class='topnav'><span class='brand'>Ballpark</span>"
             + "".join(links) + "</nav>")
 
 
@@ -2932,12 +2932,12 @@ font-size:12.5px;line-height:1.5;border-top:1px solid #e6e4da;padding-top:10px">
 © GeoBasis-DE/LGB (dl-de/by-2-0) · © Bayerische Vermessungsverwaltung (CC BY 4.0)
 · © HVBG Hessen (dl-de/by-2-0) · © Freie und Hansestadt Hamburg, LGV (dl-de/by-2-0)
 · Contains modified Copernicus Sentinel data.
-Code: <a href="https://github.com/akaalias/beeline/blob/main/LICENSE"
+Code: <a href="https://github.com/akaalias/ballpark/blob/main/LICENSE"
 style="color:inherit">GPL-3.0-or-later</a> — free software; improved forks must
 stay free —
-<a href="https://github.com/akaalias/beeline"
+<a href="https://github.com/akaalias/ballpark"
 style="color:inherit">source repository</a>.</footer>
-<a id="gh-ribbon" href="https://github.com/akaalias/beeline"
+<a id="gh-ribbon" href="https://github.com/akaalias/ballpark"
 target="_blank" rel="noopener">view on GitHub</a>"""
 
 
@@ -3609,8 +3609,8 @@ def render_notebook():
     topnav/page_header/CREDITS as every other page."""
     html_page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/lab-notebook.html', 'Lab notebook — Beeline', 'The dated narrative of the research: what happened, what broke, and what was learned, day by day.')}
-<title>Lab notebook &mdash; Beeline</title>
+{social_meta('gallery/lab-notebook.html', 'Lab notebook — Ballpark', 'The dated narrative of the research: what happened, what broke, and what was learned, day by day.')}
+<title>Lab notebook &mdash; Ballpark</title>
 <style>{CSS}</style></head><body>
 {topnav('notebook')}
 {compute_banner()}
@@ -4009,8 +4009,8 @@ def render_overview(exps):
 
     html_page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('', 'Beeline — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a $4 flight computer?', 'Yes: a from-scratch neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — the map is the weights, one city in 3.1 MB. Found by an autonomous loop of coding agents in 81 experiments for $364.')}
-<title>Beeline &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a $4 flight computer?</title>
+{social_meta('', 'Ballpark — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a $4 flight computer?', 'Yes: a from-scratch neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — the map is the weights, one city in 3.1 MB. Found by an autonomous loop of coding agents in 81 experiments for $364.')}
+<title>Ballpark &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a $4 flight computer?</title>
 <style>{CSS}
 {FP_CSS}</style><script>{PATHS_JS}</script></head><body>
 {topnav('overview', root=True)}
@@ -4437,8 +4437,8 @@ def render_paths(exps):
 
     body = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/inference-paths.html', 'Model designs — Beeline', 'All 59 agent-drawn model designs in one shared visual language, kept and reverted alike.')}
-<title>Model Designs &mdash; Beeline</title>
+{social_meta('gallery/inference-paths.html', 'Model designs — Ballpark', 'All 59 agent-drawn model designs in one shared visual language, kept and reverted alike.')}
+<title>Model Designs &mdash; Ballpark</title>
 <style>{CSS}</style><script>{PATHS_JS}</script></head><body>
 {topnav('paths')}
 {compute_banner()}
@@ -4866,8 +4866,8 @@ def render_evolution(exps):
             for e in eras)
     body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/research-evolution.html', 'Research evolution — Beeline', 'How the research itself branched: twelve days of eras, dead ends, incidents and insights, drawn as one graph.')}
-<title>Research Evolution &mdash; Beeline</title>
+{social_meta('gallery/research-evolution.html', 'Research evolution — Ballpark', 'How the research itself branched: twelve days of eras, dead ends, incidents and insights, drawn as one graph.')}
+<title>Research Evolution &mdash; Ballpark</title>
 <style>{CSS}{EVOLUTION_CSS}</style></head><body>
 {topnav('evolution')}
 {compute_banner()}
@@ -5260,8 +5260,8 @@ def render_lineage(exps):
         lineage_era_key = ""
     html_page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/research-lineage.html', 'Experiment lineage — Beeline', 'The family tree of the search: every experiment as a node, arcs to the designs it built on.')}
-<title>Experiment Lineage &mdash; Beeline</title>
+{social_meta('gallery/research-lineage.html', 'Experiment lineage — Ballpark', 'The family tree of the search: every experiment as a node, arcs to the designs it built on.')}
+<title>Experiment Lineage &mdash; Ballpark</title>
 <style>{CSS}{LINEAGE_CSS}</style></head><body>
 {topnav('lineage')}
 {compute_banner()}
@@ -5390,8 +5390,8 @@ def render():
 
     body = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/index.html', 'Research log — Beeline', 'Every experiment the autonomous loop ran, failures included: pre-registered hypotheses, results, and the exact agent prompts.')}
-<title>Research Log &mdash; Beeline</title>
+{social_meta('gallery/index.html', 'Research log — Ballpark', 'Every experiment the autonomous loop ran, failures included: pre-registered hypotheses, results, and the exact agent prompts.')}
+<title>Research Log &mdash; Ballpark</title>
 <style>{CSS}</style><script>{JS}</script></head><body>
 {topnav('log')}
 {compute_banner()}

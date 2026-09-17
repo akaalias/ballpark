@@ -1,4 +1,4 @@
-# Beeline
+# Ballpark
 
 **Can a UAV learn a city by heart?** Given a geographic bounding box, this
 repo trains a compact per-area model that takes a single downward camera

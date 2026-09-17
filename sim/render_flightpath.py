@@ -372,9 +372,9 @@ def main():
 
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/flight-path.html', 'Flight path — Beeline',
+{social_meta('gallery/flight-path.html', 'Flight path — Ballpark',
              'A virtual fixed-wing UAV flies Berlin from a to b with the champion model as its only position source. 91 of 100 flights arrive within 100 m; the failures are shown, not averaged away.')}
-<title>Flight path &mdash; Beeline</title>
+<title>Flight path &mdash; Ballpark</title>
 <style>{CSS}
 {FP_CSS}
 {FP_PAGE_CSS}</style></head><body>
