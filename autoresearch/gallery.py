@@ -1297,7 +1297,7 @@ def live_row(next_id):
   // along in the same payload — populating this row's expandable detail
   // panel (same click-to-open behavior as every finished row) well before
   // training/scoring finish, not just a phase name in the collapsed row.
-  var RAW='https://raw.githubusercontent.com/akaalias/low-light-geolocalization-autoresearch/status/phase.json';
+  var RAW='https://raw.githubusercontent.com/akaalias/beeline/status/phase.json';
   function freshen(j){{
     // GitHub Pages pins Cache-Control to 10 min and headers are not
     // configurable — but the CDN caches per-URL, so redirecting to a
@@ -1533,7 +1533,7 @@ def page_header(title, sub_html):
 # Social sharing (Open Graph + Twitter cards). One shared card image — a
 # mosaic of real geo-tiles with the headline — generated once, locally, into
 # assets/social/card.jpg (CI has no raster; same scheme as the tile grids).
-SITE_URL = "https://alexisrondeau.me/low-light-geolocalization-autoresearch/"
+SITE_URL = "https://alexisrondeau.me/beeline/"
 
 
 def social_meta(path, title, desc):
@@ -2932,12 +2932,12 @@ font-size:12.5px;line-height:1.5;border-top:1px solid #e6e4da;padding-top:10px">
 © GeoBasis-DE/LGB (dl-de/by-2-0) · © Bayerische Vermessungsverwaltung (CC BY 4.0)
 · © HVBG Hessen (dl-de/by-2-0) · © Freie und Hansestadt Hamburg, LGV (dl-de/by-2-0)
 · Contains modified Copernicus Sentinel data.
-Code: <a href="https://github.com/akaalias/low-light-geolocalization-autoresearch/blob/main/LICENSE"
+Code: <a href="https://github.com/akaalias/beeline/blob/main/LICENSE"
 style="color:inherit">GPL-3.0-or-later</a> — free software; improved forks must
 stay free —
-<a href="https://github.com/akaalias/low-light-geolocalization-autoresearch"
+<a href="https://github.com/akaalias/beeline"
 style="color:inherit">source repository</a>.</footer>
-<a id="gh-ribbon" href="https://github.com/akaalias/low-light-geolocalization-autoresearch"
+<a id="gh-ribbon" href="https://github.com/akaalias/beeline"
 target="_blank" rel="noopener">view on GitHub</a>"""
 
 

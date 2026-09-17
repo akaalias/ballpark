@@ -177,6 +177,18 @@ experiment DBs; its images live in `assets/sim/`, plain git, no LFS) ·
 `index.html` overview. `./infra/build_site.sh` refreshes the
 `_site/` preview copy, which does **not** update on its own.
 
+**The repo was renamed `low-light-geolocalization-autoresearch` → `beeline` on
+2026-09-17**, and the site moved to `https://alexisrondeau.me/beeline/`.
+github.com links and git remotes redirect on their own; Pages URLs do **not**,
+so the old `alexisrondeau.me/low-light-geolocalization-autoresearch/…` links
+(posted in several places) are kept alive by seven redirect stubs living in the
+**personal-site repo** `akaalias/akaalias.github.io`, under a folder of the old
+name. Two consequences: never create a new repo called
+`low-light-geolocalization-autoresearch` (it would shadow the stubs *and* kill
+GitHub's repo redirect), and **a newly published page needs no stub, but a
+renamed or removed one does** — add it there. The local checkout directory
+keeps the old name on purpose (Claude's project memory is keyed to the path).
+
 All five pages now span **every era**, driven by `lineage_history.sqlite`, and
 share one visual system: a background band per evaluation era, same tints and
 same captions on the chart, the lineage arcs, the evolution graph and the
