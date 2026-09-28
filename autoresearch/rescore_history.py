@@ -106,8 +106,13 @@ ERAS = [
         eval_set="viewpoint holdout, daytime only, Berlin only",
         note="The evaluation was fixed here: held-out viewpoints over mapped "
              "ground instead of held-out regions. The metric was still an "
-             "error statistic. Run artifacts were not kept.",
-        rescorable=False,  # run dirs deleted; rates derived from stored JSON
+             "error statistic. Run artifacts were not kept, so these four "
+             "could only ever be placed on a ruler by arithmetic from their "
+             "logged same-photograph rates — which no longer answers the "
+             "question the current ruler asks (an unseen photograph). "
+             "Incomparable, not lost.",
+        rescorable=False,  # run dirs deleted
+        derivable=False,   # logged rates are same-photograph; not this ruler
     ),
     dict(
         key="mission",
@@ -448,16 +453,16 @@ def main():
                 continue
 
             # --- artifacts gone: derive the rates from the stored record ---
-            derived = derive_rates(old_metrics)
+            derived = derive_rates(old_metrics) if era.get("derivable", True) else None
             if derived:
                 row.update(provenance="derived", **{
                     k: v for k, v in derived.items() if k in row})
                 print(f"   #{d['id']:>3}  {row['mission_score']:.4f}  (derived)"
                       f"  {d['title'][:48]}")
-            elif not in_window:
+            elif not in_window or not era.get("derivable", True):
                 row["provenance"] = "incomparable"
-                print(f"   #{d['id']:>3}  INCOMPARABLE (pre-1 m/px imagery)"
-                      f"  {d['title'][:40]}")
+                why = "pre-1 m/px imagery" if not in_window else "same-photograph rates only"
+                print(f"   #{d['id']:>3}  INCOMPARABLE ({why})  {d['title'][:40]}")
             else:
                 print(f"   #{d['id']:>3}  UNRECOVERABLE  {d['title'][:48]}")
             rows.append(row)

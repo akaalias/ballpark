@@ -120,10 +120,31 @@ actually begun memorizing. If your design improves the geometric mean while
    genuinely fits your read of the history, and if you build on one, say
    so in your hypothesis.
 
-1. **Review the research history.** Query the lineage DB:
+1. **Review the research history.** Two sources, treated differently.
+
+   (a) THIS era — verdicts are valid, on this ruler:
    `sqlite3 experiments.sqlite "SELECT id, title, category, hypothesis, expected_outcome, result, conclusion, primary_metric, kept FROM experiments ORDER BY id DESC LIMIT 15;"`
    Note which hypotheses were supported/refuted. Do not repeat a refuted
-   experiment without a materially new angle.
+   experiment without a materially new angle. Also read each row's
+   `metrics_json` -> `train_capture_diagnostics`: the gap between the
+   training photographs and the held-out one is the thing to close.
+
+   (b) EARLIER eras — what was tried, with the verdicts VOID. 83 experiments
+   over five earlier evaluation regimes have been re-scored on today's ruler:
+   `sqlite3 lineage_history.sqlite "SELECT era_label, src_id, title, category, hypothesis, init_strategy, mission_score, usable_fix_rate, false_fix_rate, abstain_rate, provenance FROM history WHERE kind != 'holdout_check' ORDER BY mission_score ASC;"`
+   Read this as a MAP OF THE SEARCH SPACE, not as a list of refutations:
+   every one of those experiments was kept or reverted under an evaluation
+   that asked about the training photograph (or about never-seen ground),
+   and its stored `conclusion` is about that question, not this one — which
+   is why the query above deliberately omits it. Their `mission_score` here
+   is the re-measurement on the held-out photograph, and none is good: the
+   best is 1.23, reached by abstaining on 77% of frames, and the 0.040
+   same-photograph champion sits at 1.87. So an idea from an earlier era is
+   neither validated nor refuted for THIS question — contrastive
+   pretraining, learned relighting, pretrained trunks, dense voting and the
+   rest are all open again. A row's `provenance` tells you how it was
+   measured (`rescored` = its exported model re-run today; `gated` = never
+   had a working model; `incomparable` = cannot be placed on this ruler).
 
    **Plateau rule (advisory only on this branch):** the harness's automatic
    pivot enforcement (mandatory-pivot preamble, backbone-carry rejection) is
