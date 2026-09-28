@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from pipeline.common import DATA_DIR, LIGHTING_BUCKETS, area_dir
+from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 
 SAMPLE_PX = 256
 
@@ -25,7 +25,7 @@ def main():
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     for area in args.areas.split(","):
-        for bucket in LIGHTING_BUCKETS:
+        for bucket in buckets(load_meta(area, data_dir)):
             img = np.asarray(Image.open(area_dir(area, data_dir) / "relight" / f"{bucket}.png"))
             cy, cx = img.shape[0] // 2, img.shape[1] // 2
             h = SAMPLE_PX // 2

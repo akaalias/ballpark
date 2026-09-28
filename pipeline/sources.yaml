@@ -20,6 +20,38 @@ sources:
     native_gsd_m: 0.2
     attribution: "© GeoBasis-DE/LGB, dl-de/by-2-0 (data modified)"
 
+  # Berlin's own TrueDOP campaigns, one service per survey year. Named
+  # captures only (auto_pick: false) — an unnamed bbox in Berlin still gets
+  # the joint BB-BE layer above, so nothing changes for the generic path.
+  # True orthophotos (no building lean). Licence: dl-de/zero-2-0.
+  - name: berlin_truedop_2022
+    kind: wms
+    auto_pick: false
+    coverage: [13.05, 52.33, 13.80, 52.70]
+    url: "https://gdi.berlin.de/services/wms/truedop_2022"
+    layer: truedop_2022
+    wms_version: "1.3.0"
+    native_gsd_m: 0.2
+    attribution: "© Geoportal Berlin / TrueDOP 2022, dl-de/zero-2-0"
+  - name: berlin_truedop_2023
+    kind: wms
+    auto_pick: false
+    coverage: [13.05, 52.33, 13.80, 52.70]
+    url: "https://gdi.berlin.de/services/wms/truedop_2023"
+    layer: truedop_2023
+    wms_version: "1.3.0"
+    native_gsd_m: 0.2
+    attribution: "© Geoportal Berlin / TrueDOP 2023, dl-de/zero-2-0"
+  - name: berlin_truedop_2024
+    kind: wms
+    auto_pick: false
+    coverage: [13.05, 52.33, 13.80, 52.70]
+    url: "https://gdi.berlin.de/services/wms/truedop_2024"
+    layer: truedop_2024
+    wms_version: "1.3.0"
+    native_gsd_m: 0.2
+    attribution: "© Geoportal Berlin / TrueDOP 2024, dl-de/zero-2-0"
+
   - name: dop40_bavaria
     kind: wms
     coverage: [8.95, 47.25, 13.95, 50.60]

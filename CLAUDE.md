@@ -1,5 +1,98 @@
 # UAV Low-Light Geolocalization — Autoresearch Bootstrap Spec
 
+## THE CAPTURE-HOLDOUT ERA — branch `capture-holdout`, opened 2026-09-28
+
+**This is a testing branch. `main` is untouched and still publishes the
+berlin-slim result below.** Nothing here merges until the era has produced
+something better than its own baseline on its own ruler; only then is the
+question of `main` and the published report reopened. The state block below
+("STATE AS OF 2026-07-31") describes `main`, and stays true for `main`.
+
+### Why the era exists — the founding measurement
+
+The 0.040 champion was asked to locate frames from **other photographs of the
+same ground**, warped onto the exact grid it trained on (alignment ≤ 1 px):
+
+| scored on | mission | usable | false fix | median |
+|---|---|---|---|---|
+| its training raster (Brandenburg DOP20) | 0.040 | 96.5% | 0.5% | 27 m |
+| Berlin TrueDOP 2024 (open, dl-de/zero) | 1.873 | 0.0% | 87.2% | 3,315 m |
+| Berlin TrueDOP 2023 | 1.776 | 1.2% | 78.8% | 3,510 m |
+| Berlin TrueDOP 2022, leaf-off | 1.866 | 0.2% | 86.8% | 3,936 m |
+| Google satellite (local diagnostic only, never in the repo) | 1.971 | 0.2% | 97.2% | 3,551 m |
+| its own raster, **+20 on every pixel** | 1.453 | 1.5% | 46.8% | 3,076 m |
+| its own raster, 1 px Gaussian blur | 1.271 | 14.2% | 41.2% | 1,326 m |
+| its own raster, shifted 3 px | 0.040 | 96.8% | 0.8% | 27 m |
+
+A random guess over the box misses by 3.6 km. The champion memorised one
+photograph's pixel values (rotation was the only augmentation), and its
+confidence head, trained on the same photograph, stayed ~97% confident while
+wrong; 390 confident predictions on a foreign photograph collapsed onto 40 map
+cells. Colour-matching the foreign photograph recovered abstention (coverage
+97% → 61%) but not accuracy (median still 3.1 km). **The same-photograph eval
+could never see any of this, and the loop only fixes what its ruler
+measures** — a photometric-augmentation experiment scored on the old eval
+would come in a hair above 0.040 and be reverted. Hence a new era, not an
+experiment. Full record: memory `google-tiles-domain-gap-probe`,
+`berlin-truedop-years`; scratch artifacts in `~/scratch/gtest/` are working
+files, not the research record.
+
+### What the era changes (all frozen, all committed in the opening commit)
+
+- **Captures** (`pipeline/common.py`): an area may carry several independent
+  photographs of the same bbox on one grid. `areas.yaml` gives Berlin four:
+  `bb_dop20` (the champion's raster, registered unchanged), `truedop_2022`,
+  `truedop_2023` (all `role: train`) and **`truedop_2024`, `role: eval` — held
+  out of training entirely.** Sources: `pipeline/sources.yaml`, three Berlin
+  TrueDOP WMS entries (`auto_pick: false`, so the generic path is unchanged).
+- **Layout**: `data/<area>/captures/<name>.tif` (fetch), `relight/<bucket>.png`
+  per capture × lighting bucket; with one lighting bucket the bucket IS the
+  capture name. `relight/asis.png` and the bucket name `asis` are gone for
+  Berlin (areas without a captures list still get a single `asis`).
+  `reference.tif` is kept on disk but nothing reads it when captures exist.
+- **Score** (`pipeline/score.py`): the primary is the worst over the **eval**
+  buckets — for Berlin, exactly one: `truedop_2024`. The training captures
+  are scored too under `train_capture_diagnostics`, logged only, so every
+  experiment records its memorisation-vs-ground gap. `SCORE_DIAGNOSTICS=0`
+  skips them (bulk re-scoring). The heatmap and the region-holdout diagnostic
+  use the eval capture.
+- **Training contract** (`model/train.py`, agent-editable, and
+  `autoresearch/prompt_impl.md`): training reads only
+  `buckets(meta, "train")`. **Nothing under `model/` may open the eval
+  capture in any form** — that would be leakage, and the experiment is void.
+  An epoch now covers three photographs, so training is ~3× the old
+  wall-clock (~45 min on the M1 at default `EPOCHS`).
+- **Lineage**: `experiments.sqlite` wiped; the mission era is archived as
+  `archive/pre-capture-holdout-experiments.sqlite` and re-scored on the new
+  ruler by `rescore_history.py` (era key `mission`, no longer native; new era
+  `capture_holdout` is native). `state/rescore_cache/` was cleared because
+  the ruler changed. The overview fix from `f7ce820` (best row across all
+  eras, from `lineage_history.sqlite`) is ported, so the front page cannot
+  reset to this era's baseline.
+- **Design brief** (`autoresearch/prompt.md`): carries the founding table and
+  the split; it deliberately does not prescribe the fix.
+
+### Rules for this branch
+
+- **Never put Google imagery anywhere in the repo or the pipeline** (§4). It
+  was a one-off local diagnostic; the legitimate second photographs are the
+  open TrueDOP years.
+- Eval capture = `truedop_2024`, fixed for the era. Do not rotate it, do not
+  add it to training "just to see". Changing it is a new era.
+- The loop pushes to `origin/capture-holdout`. `state/research_status` is
+  `live` here; `main`'s is `finished`.
+- Before merging: re-run `rescore_history`, re-render, then the
+  `freeze_site_assets` routine — the heatmaps now show the 2024 photograph.
+
+### Expected shape of the era
+
+The baseline seed (experiment 1, `SKIP_AGENT=1`) trains the champion's
+architecture on three captures and scores on the fourth. Expect it to be bad
+on the held-out photograph and near 0.04 on the training ones; the gap
+between those two numbers is what the loop is now asked to close.
+
+---
+
 ## THE PRIGNITZ DETOUR — opened and rewound, 2026-07-31 → 08-01
 
 On the evening of 31 July a rural era was opened on Prignitz (`AREAS=prignitz`).

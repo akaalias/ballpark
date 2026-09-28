@@ -112,11 +112,31 @@ ERAS = [
     dict(
         key="mission",
         label="Mission score",
+        db="archive/pre-capture-holdout-experiments.sqlite",
+        ruler="mission score — (1 - usable) + false, same photograph",
+        eval_set="viewpoint holdout, daytime only, Berlin only, eval on the "
+                 "training photograph",
+        note="The metric became the product requirement itself and the "
+             "approach worked: 0.040, 96.5% usable. But the eval crops came "
+             "from the very raster the model trained on. On 2026-09-28 the "
+             "champion was scored on other open photographs of the same "
+             "ground (Berlin TrueDOP 2022/2023/2024) and on +20 brightness "
+             "of its own raster: 1.78-1.97 and 1.45. It had memorised one "
+             "photograph's pixels, not the city. Re-scored here on the "
+             "held-out photograph like every earlier era.",
+        rescorable=True,
+    ),
+    dict(
+        key="capture_holdout",
+        label="Held-out photograph",
         db="experiments.sqlite",
-        ruler="mission score — (1 - usable) + false",
-        eval_set="viewpoint holdout, daytime only, Berlin only",
-        note="The metric became the product requirement itself. Scores from "
-             "here on are native, not re-scored.",
+        ruler="mission score — (1 - usable) + false, unseen photograph",
+        eval_set="viewpoint holdout on a photograph never used in training "
+                 "(Berlin TrueDOP 2024); training on three other captures",
+        note="The eval capture is a photograph the model has never seen. "
+             "Same viewpoint holdout, same product metric; the new axis is "
+             "'the photograph is new' on top of 'the view is new'. Scores "
+             "from here on are native.",
         rescorable=True,
         native=True,
     ),

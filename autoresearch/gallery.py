@@ -60,7 +60,7 @@ def frame_caption():
     try:
         from pipeline.common import LIGHTING_BUCKETS
         return ("one daytime frame" if list(LIGHTING_BUCKETS) == ["asis"]
-                else "one night exposure")
+                else "one night exposure")   # captures do not change what a frame IS
     except Exception:
         return "one camera frame"
 
@@ -1754,10 +1754,11 @@ ERA_TINT = {
     "slim_v1":   "rgba(138,106,30,.075)",
     "eval_v2":   "rgba(138,106,30,.135)",
     "mission":   "rgba(140,47,31,.085)",
+    "capture_holdout": "rgba(140,47,31,.15)",
 }
 ERA_INK = {
     "bootstrap": "#6b6a60", "main": "#6b6a60", "slim_v1": "#8a6a1e",
-    "eval_v2": "#8a6a1e", "mission": "#8c2f1f",
+    "eval_v2": "#8a6a1e", "mission": "#8c2f1f", "capture_holdout": "#8c2f1f",
 }
 # Short band captions. The full era description lives in the eras table and is
 # surfaced on hover; these are what fits above a band.
@@ -1767,6 +1768,7 @@ ERA_SHORT = {
     "slim_v1": "berlin only",
     "eval_v2": "viewpoint holdout",
     "mission": "mission score",
+    "capture_holdout": "held-out photograph",
 }
 
 
@@ -1819,7 +1821,7 @@ def history_chart_svg(rows, eras):
 
     step = iw / max(n - 1, 1)
     p = [f"<svg viewBox='0 0 {W} {H}' role='img' aria-label='mission score for "
-         f"every experiment across all five evaluation eras'>"]
+         f"every experiment across all evaluation eras'>"]
 
     # --- era bands, first so everything else sits on top of them ---
     for era in eras:
@@ -2395,8 +2397,16 @@ def worked_example_block(e):
                  "internal probability field to show")
     # "asis" is the internal bucket name for this branch's unmodified daytime
     # imagery — meaningless to a reader, where "at night" used to read fine.
-    light = ("daytime reference imagery, unmodified" if info["bucket"] == "asis"
-             else f"simulated {str(info['bucket']).replace('_', ' ')}")
+    # Bucket names: "asis" = the single unmodified daytime raster; a bare
+    # capture name = one unmodified photograph (capture-holdout era); a
+    # "<capture>__<lighting>" name = a simulated lighting render of it.
+    _b = str(info["bucket"])
+    if _b == "asis":
+        light = "daytime reference imagery, unmodified"
+    elif "__" in _b:
+        light = f"simulated {_b.replace('__', ', ').replace('_', ' ')}"
+    else:
+        light = f"the held-out {_b.replace('_', ' ')} photograph, unmodified"
     fig = f"""<div class='wex-row'>
 <div class='wex-imgs'>
 <figure class='wex-frame'><a href='{fr}'><img src='{fr}' loading='lazy'></a>
@@ -3889,14 +3899,46 @@ def render_overview(exps):
     # Figures for "The answer" and "The verdict". Read from the champion's own
     # record and training info rather than typed in, so the prose cannot drift
     # from the model it describes the way the 0.183 numbers did.
-    champ = next((e for e in reversed(dev)
-                  if e["kept"] and e["primary_metric"] is not None
-                  and e["primary_metric"] < FAIL), None)
+    # THE BEST RESULT ACROSS EVERY ERA ON TODAY'S RULER, not the best in the
+    # current lineage (ported from f7ce820, the rewound Prignitz commit). The
+    # current DB's last kept row is right only while one era is the whole
+    # story; after a lineage wipe it is that era's day-one baseline, and the
+    # front page would advertise a weaker result than the project has. The
+    # merged history puts every era on one ruler by construction, so the hero
+    # figure, the bottom line and the champion drawing resolve from one row.
+    # Falls back to the current lineage when the history DB is not built.
+    _scored = [r for r in _hist if r["kind"] != "holdout_check"
+               and r["mission_score"] is not None and r["mission_score"] < FAIL]
+    best_hist = min(_scored, key=lambda r: r["mission_score"], default=None)
+    champ = None
+    if best_hist is not None:
+        champ = dict(best_hist)
+        champ["id"] = f"{best_hist['era_index'] + 1}.{best_hist['src_id']}"
+        cm = {}
+        if best_hist.get("artifacts_dir"):
+            mp = REPO_ROOT / best_hist["artifacts_dir"] / "metrics.json"
+            if mp.exists():
+                try:
+                    cm = json.loads(mp.read_text())
+                except (OSError, ValueError):
+                    cm = {}
+        gates = next((a.get("gates") or {} for a in cm.get("areas", [])), {})
+        champ["model_bytes_max"] = gates.get("model_bytes")
+        champ["latency_ms_host_proxy"] = gates.get("latency_ms_host_proxy")
+        # Rates from the HISTORY row — today's ruler — not from the archived
+        # metrics.json, which its own era's scorer wrote.
+        cell = {k: best_hist[k] for k in
+                ("usable_fix_rate", "false_fix_rate", "abstain_rate", "coverage",
+                 "median_error_m", "geomean_error_m", "p10_error_m")}
+    else:
+        champ = next((e for e in reversed(dev)
+                      if e["kept"] and e["primary_metric"] is not None
+                      and e["primary_metric"] < FAIL), None)
+        cm = json.loads(champ["metrics_json"] or "{}") if champ else {}
+        cell = next((c for a in cm.get("areas", [])
+                     for c in a.get("buckets", {}).values()), {})
     best_mb = (champ["model_bytes_max"] or 0) / 1e6 if champ else 0.0
-    best_ms = champ["latency_ms_host_proxy"] if champ else 0.0
-    cm = json.loads(champ["metrics_json"] or "{}") if champ else {}
-    cell = next((c for a in cm.get("areas", [])
-                 for c in a.get("buckets", {}).values()), {})
+    best_ms = (champ["latency_ms_host_proxy"] or 0.0) if champ else 0.0
     hold = next((a.get("region_holdout") or {} for a in cm.get("areas", [])), {})
     usable_pct = f"{100*(cell.get('usable_fix_rate') or 0):.1f}%"
     false_pct = f"{100*(cell.get('false_fix_rate') or 0):.1f}%"
@@ -3959,19 +4001,12 @@ def render_overview(exps):
     # The mission score is in [0,2] and 0 is the goal, so "distance to goal"
     # is just the score itself, and progress is how far it has closed from the
     # first scoreable run toward 0.
-    usable_best = med_best = false_best = abstain_best = None
-    for e in reversed(dev):
-        if e["kept"] and e.get("metrics_json"):
-            try:
-                cells = json.loads(e["metrics_json"])["areas"][0]["buckets"].values()
-                worst = max(cells, key=lambda c: c.get("mission_score") or 0)
-                usable_best = worst.get("usable_fix_rate")
-                abstain_best = worst.get("abstain_rate")
-                false_best = worst.get("false_fix_rate")
-                med_best = worst.get("median_error_m")
-            except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
-                pass
-            break
+    # Same source as the headline above (the best row across ALL eras), so the
+    # hero figure and the bottom line can never describe different models.
+    usable_best = cell.get("usable_fix_rate")
+    abstain_best = cell.get("abstain_rate")
+    false_best = cell.get("false_fix_rate")
+    med_best = cell.get("median_error_m")
     usable_s2 = f"{100*usable_best:.0f}%" if usable_best is not None else "—"
     med_s = f"{med_best:,.0f} m" if med_best else "—"
     false_s = f"{100*false_best:.1f}%" if false_best is not None else "—"

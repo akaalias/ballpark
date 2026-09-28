@@ -41,6 +41,16 @@ FAIL_SCORE — a model cannot pass by abstaining its way out.
 Holdout (§5): scoring hamburg requires --holdout, writes to a separate output,
 and must never feed the keep/revert decision (enforced in loop.sh).
 
+CAPTURES (2026-09-28, see pipeline/common.py). The scored buckets are the
+area's EVAL captures — photographs the model never trained on — under each
+lighting condition; the primary is the worst of them. The training captures
+are scored too and written under "train_capture_diagnostics": LOGGED ONLY,
+never part of the primary, so the memorisation/generalisation gap of every
+experiment is on the record without being able to drive keep/revert. Set
+SCORE_DIAGNOSTICS=0 to skip them (bulk re-scoring of history). For an area
+without an eval capture the eval buckets ARE the training buckets — the
+pre-era behaviour — and no diagnostics block is written.
+
 Usage:
   python -m pipeline.score --areas berlin,prignitz --model-dir runs/X/models --out runs/X/metrics.json
   python -m pipeline.score --areas hamburg --holdout --model-dir ... --out runs/X/holdout.json
@@ -48,14 +58,15 @@ Usage:
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from pipeline.common import (CROP_PX, DATA_DIR, LIGHTING_BUCKETS, area_dir,
-                             load_areas, load_meta)
+from pipeline.common import (CROP_PX, DATA_DIR, area_dir, buckets, load_areas,
+                             load_meta)
 from pipeline.dataset import error_meters, extract_crop, list_crops
 
 MODEL_MAX_BYTES = 4 * 1024 * 1024   # ESP32-P4 flash/PSRAM envelope per model
@@ -118,8 +129,11 @@ def score_area(area: str, model_dir: Path, data_dir: Path, heatmap_dir: Path | N
         idx = np.linspace(0, len(crops) - 1, MAX_EVAL_CROPS_PER_BUCKET).astype(int)
         crops = [crops[i] for i in idx]
 
+    eval_b = buckets(meta, "eval")
+    train_b = {k: v for k, v in buckets(meta, "train").items() if k not in eval_b}
     heat_points = []
-    for bucket in LIGHTING_BUCKETS:
+
+    def score_bucket(bucket):
         img = np.asarray(Image.open(area_dir(area, data_dir) / "relight" / f"{bucket}.png"))
         errs, n_conf = [], 0
         for c in crops:
@@ -190,7 +204,30 @@ def score_area(area: str, model_dir: Path, data_dir: Path, heatmap_dir: Path | N
             "p25_error_m": round(float(np.percentile(ea, 25)), 2) if errs else None,
         }
         cell["score"] = FAIL_SCORE if coverage < MIN_COVERAGE else cell["mission_score"]
+        return cell
+
+    for bucket, b in eval_b.items():
+        cell = score_bucket(bucket)
+        cell["capture"] = b["capture"]
+        cell["lighting"] = b["lighting"]
         result["buckets"][bucket] = cell
+
+    # Training-capture diagnostics: how the model does on the photographs it
+    # WAS shown, from held-out viewpoints. The gap between this and the eval
+    # capture is the memorisation-vs-ground question this era exists to ask.
+    # Logged only; never enters the primary.
+    if train_b and os.environ.get("SCORE_DIAGNOSTICS", "1") != "0":
+        heat_keep = list(heat_points)
+        diag = {}
+        for bucket, b in train_b.items():
+            cell = score_bucket(bucket)
+            cell["capture"] = b["capture"]
+            cell["lighting"] = b["lighting"]
+            cell.pop("score", None)
+            cell["note"] = "training photograph, held-out viewpoints; logged only, never scored"
+            diag[bucket] = cell
+        result["train_capture_diagnostics"] = diag
+        heat_points[:] = heat_keep  # heatmap shows the EVAL capture only
 
     # Region-holdout diagnostic (dataset.py v2): a small 1-in-32-block region
     # genuinely excluded from training. LOGGED ONLY — deliberately not folded
@@ -203,7 +240,7 @@ def score_area(area: str, model_dir: Path, data_dir: Path, heatmap_dir: Path | N
         if len(hold) > MAX_EVAL_CROPS_PER_BUCKET:
             idx = np.linspace(0, len(hold) - 1, MAX_EVAL_CROPS_PER_BUCKET).astype(int)
             hold = [hold[i] for i in idx]
-        bucket0 = next(iter(LIGHTING_BUCKETS))
+        bucket0 = next(iter(eval_b))
         img = np.asarray(Image.open(area_dir(area, data_dir) / "relight" / f"{bucket0}.png"))
         errs, n_conf = [], 0
         for c in hold:
@@ -225,17 +262,17 @@ def score_area(area: str, model_dir: Path, data_dir: Path, heatmap_dir: Path | N
         }
 
     if heatmap_dir:
-        render_heatmap(area, data_dir, heat_points, heatmap_dir / f"heatmap_{area}.png")
+        render_heatmap(area, data_dir, heat_points, heatmap_dir / f"heatmap_{area}.png",
+                       bg_bucket=next(iter(eval_b)))
     return result
 
 
 HEATMAP_MAX_PX = 1600
 
 
-def render_heatmap(area, data_dir, points, out_path: Path):
-    # Background bucket: whichever comes first in LIGHTING_BUCKETS, not a
-    # hardcoded name — berlin-slim's collapsed bucket set is just "asis".
-    bg_bucket = next(iter(LIGHTING_BUCKETS))
+def render_heatmap(area, data_dir, points, out_path: Path, bg_bucket: str):
+    # Background: the eval capture the dots were scored on, not a hardcoded
+    # name — the photograph behind the dots is the one that was asked about.
     base = Image.open(area_dir(area, data_dir) / "relight" / f"{bg_bucket}.png").convert("RGB")
     scale = min(1.0, HEATMAP_MAX_PX / max(base.size))
     if scale < 1.0:

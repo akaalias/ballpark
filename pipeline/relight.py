@@ -28,8 +28,8 @@ import numpy as np
 import rasterio
 from PIL import Image, ImageFilter
 
-from pipeline.common import (DATA_DIR, LIGHTING_BUCKETS, area_dir, load_meta,
-                             stable_hash)
+from pipeline.common import (DATA_DIR, LIGHTING_BUCKETS, area_dir, buckets,
+                             load_meta, stable_hash)
 
 # Scene model constants (bbox-independent; spatial units in meters).
 AMBIENT_DAY_COLOR = np.array([1.00, 1.00, 1.00], dtype=np.float32)
@@ -115,24 +115,41 @@ def relight(ref: np.ndarray, ambient: float, gsd: float, seed: int) -> np.ndarra
     return (scene ** np.float32(1 / 2.2) * 255.0).astype(np.uint8)
 
 
+def _read_capture(d: Path, capture: str) -> np.ndarray:
+    """captures/<name>.tif (pipeline_data_version 3), falling back to the
+    single reference.tif of areas fetched before captures existed."""
+    path = d / "captures" / f"{capture}.tif"
+    if not path.exists():
+        path = d / "reference.tif"
+    with rasterio.open(path) as src:
+        return src.read().transpose(1, 2, 0)  # HxWx3
+
+
 def relight_area(area: str, data_dir: Path | None = None):
     d = area_dir(area, data_dir)
     meta = load_meta(area, data_dir)
-    with rasterio.open(d / "reference.tif") as src:
-        ref = src.read().transpose(1, 2, 0)  # HxWx3
     out_dir = d / "relight"
     out_dir.mkdir(exist_ok=True)
-    for bucket, ambient in LIGHTING_BUCKETS.items():
-        if bucket == "asis":
-            # berlin-slim branch override (see CLAUDE.md "BRANCH OVERRIDE"):
-            # pass the daytime reference through unmodified — no ambient
-            # dimming, no artificial-light sim, no sensor noise curve.
-            img = ref.astype(np.uint8)
-        else:
-            seed = stable_hash(f"{area}:{bucket}")
-            img = relight(ref, ambient, meta["gsd_m"], seed)
-        Image.fromarray(img).save(out_dir / f"{bucket}.png")
-        print(f"  {bucket} (ambient={ambient}) -> {out_dir / (bucket + '.png')}", flush=True)
+    # One PNG per bucket = one capture (photograph) x one lighting condition.
+    by_capture: dict[str, list[tuple[str, str]]] = {}
+    for bname, b in buckets(meta).items():
+        by_capture.setdefault(b["capture"], []).append((bname, b["lighting"]))
+    for capture, blist in by_capture.items():
+        ref = _read_capture(d, capture)
+        for bname, lighting in blist:
+            ambient = LIGHTING_BUCKETS[lighting]
+            if lighting == "asis":
+                # berlin-slim branch override (see CLAUDE.md "BRANCH OVERRIDE"):
+                # pass the daytime photograph through unmodified — no ambient
+                # dimming, no artificial-light sim, no sensor noise curve.
+                img = ref.astype(np.uint8)
+            else:
+                seed = stable_hash(f"{area}:{capture}:{lighting}")
+                img = relight(ref, ambient, meta["gsd_m"], seed)
+            Image.fromarray(img).save(out_dir / f"{bname}.png")
+            print(f"  {bname} (capture={capture}, ambient={ambient}) -> "
+                  f"{out_dir / (bname + '.png')}", flush=True)
+        del ref
 
 
 def main():
@@ -141,7 +158,9 @@ def main():
     ap.add_argument("--data-dir", default=None)
     args = ap.parse_args()
     data_dir = Path(args.data_dir) if args.data_dir else DATA_DIR
-    print(f"Relighting {args.area} into {len(LIGHTING_BUCKETS)} buckets")
+    n = len(buckets(load_meta(args.area, data_dir)))
+    print(f"Relighting {args.area} into {n} bucket(s) "
+          f"({len(LIGHTING_BUCKETS)} lighting condition(s) per capture)")
     relight_area(args.area, data_dir)
 
 

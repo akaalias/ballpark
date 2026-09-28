@@ -28,7 +28,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from model.model import CELL_PX, build_model, export_onnx, grid_dims, loss_fn
-from pipeline.common import DATA_DIR, LIGHTING_BUCKETS, area_dir, load_meta
+from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import extract_crop, list_crops
 
 CHUNK_SIZE = 4096  # lattice positions extracted at a time (bounds memory)
@@ -36,10 +36,14 @@ BATCH_SIZE = 64
 
 
 def load_scene(area: str, data_dir: Path):
-    """Meta + the relight image(s). One pass-through bucket on this branch."""
+    """Meta + one image per TRAIN bucket (capture x lighting). The eval
+    capture is never loaded here: the scorer asks about a photograph the
+    model has not seen (pipeline/common.py "captures")."""
     meta = load_meta(area, data_dir)
+    names = list(buckets(meta, "train"))
     imgs = [np.asarray(Image.open(area_dir(area, data_dir) / "relight" / f"{b}.png"))
-            for b in LIGHTING_BUCKETS]
+            for b in names]
+    print(f"[{area}] training buckets: {names}", flush=True)
     crops = list_crops(area, meta["width"], meta["height"], "train")
     return meta, imgs, crops
 

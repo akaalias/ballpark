@@ -21,11 +21,17 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from autoresearch.db import REPO_ROOT
-from pipeline.common import area_dir, load_meta, px_to_lonlat
+from pipeline.common import area_dir, buckets, load_meta, px_to_lonlat
 from pipeline.dataset import crop_center_norm, extract_crop, list_crops
 
 AREA = "berlin"          # the only area on this branch (CLAUDE.md "BRANCH OVERRIDE")
-BUCKET = "asis"          # the only bucket on this branch — no relighting sim
+
+
+def eval_bucket() -> str:
+    """The EVAL bucket: the photograph the model is scored on (the held-out
+    capture in the capture-holdout era; "asis" for a single-photograph
+    area). Resolved lazily so importing this module needs no data on disk."""
+    return next(iter(buckets(load_meta(AREA), "eval")))
 MAP_PX = 640
 ACCENT = (140, 47, 31)   # --accent #8c2f1f
 
@@ -93,7 +99,7 @@ def generate(run_dir: Path) -> dict | None:
     meta = load_meta(AREA)
     crops = list_crops(AREA, meta["width"], meta["height"], "eval")
     c = crops[len(crops) // 2]  # deterministic: same eval crop for every run
-    night = np.asarray(Image.open(area_dir(AREA) / "relight" / f"{BUCKET}.png"))
+    night = np.asarray(Image.open(area_dir(AREA) / "relight" / f"{eval_bucket()}.png"))
     frame = extract_crop(night, c["cx"], c["cy"], c["angle"])
     (u, v, conf), field = _run_model(onnx_path, frame)
 
@@ -107,7 +113,7 @@ def generate(run_dir: Path) -> dict | None:
 
     scale = MAP_PX / max(w, h)
     mw, mh = round(w * scale), round(h * scale)
-    base = Image.open(area_dir(AREA) / "relight" / f"{BUCKET}.png") \
+    base = Image.open(area_dir(AREA) / "relight" / f"{eval_bucket()}.png") \
         .convert("RGB").resize((mw, mh), Image.LANCZOS)
     if field is not None:
         alpha = (field / field.max()) * 0.66
@@ -124,7 +130,7 @@ def generate(run_dir: Path) -> dict | None:
     base.save(out / "map.png")
 
     info = {
-        "area": AREA, "bucket": BUCKET, "miss_m": round(miss_m, 1),
+        "area": AREA, "bucket": eval_bucket(), "miss_m": round(miss_m, 1),
         "conf": round(conf, 3),
         "has_field": field is not None,
         "field_k": None if field is None else int(field.shape[0]),

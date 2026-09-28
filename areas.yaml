@@ -13,6 +13,14 @@ areas:
     bbox: [13.32, 52.47, 13.42, 52.53]
     role: development
     note: Primary dense-urban reference case.
+    # Capture-holdout era (2026-09-28): four independent photographs of the
+    # same box on the same grid. The model trains on three and is scored on
+    # the fourth, which it never sees. See pipeline/common.py "captures".
+    captures:
+      - {name: bb_dop20,     source: dop20_brandenburg_berlin, role: train}   # summer, full canopy (fetched 2026-07-20)
+      - {name: truedop_2022, source: berlin_truedop_2022,      role: train}   # leaf-off
+      - {name: truedop_2023, source: berlin_truedop_2023,      role: train}   # early spring
+      - {name: truedop_2024, source: berlin_truedop_2024,      role: eval}    # spring green — HELD OUT
   prignitz:
     bbox: [12.10, 53.05, 12.20, 53.11]
     role: development

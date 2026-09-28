@@ -14,8 +14,8 @@ metric. Full context: `CLAUDE.md`.
 
 | Path | Status | What |
 |---|---|---|
-| `pipeline/` | **FROZEN** | bbox-generic fetch (Sentinel-2, open-licensed), 6-bucket synthetic low-light relighting (collapsed to a daytime pass-through in the current berlin-slim configuration), deterministic split holding out **viewpoints, not regions** (training covers the whole bbox; eval frames sit 11-17 m off the nearest training vantage — see `pipeline/dataset.py` for why a region-based holdout was wrong), §6 scoring — the mission score, (1 - usable_fix_rate) + false_fix_rate, which is the product requirement rather than an error statistic — with ESP32-P4 deployment gates |
-| `areas.yaml` | **FROZEN** | 4 development areas + hamburg blind holdout |
+| `pipeline/` | **FROZEN** | bbox-generic fetch of one or several **captures** per area (independent open-licensed photographs of the same ground on one grid — see `pipeline/common.py`), 6-bucket synthetic low-light relighting (collapsed to a daytime pass-through in the current berlin-slim configuration), deterministic split holding out **viewpoints, not regions** (training covers the whole bbox; eval frames sit 11-17 m off the nearest training vantage — see `pipeline/dataset.py` for why a region-based holdout was wrong) **and, since 2026-09-28, the photograph itself** (the eval capture is never trained on), §6 scoring — the mission score, (1 - usable_fix_rate) + false_fix_rate, which is the product requirement rather than an error statistic — with ESP32-P4 deployment gates |
+| `areas.yaml` | **FROZEN** | 4 development areas + hamburg blind holdout; per-area capture lists (Berlin: 3 training photographs + 1 held out) |
 | `model/` | agent-editable | model architecture + training procedure (the loop's playground) |
 | `autoresearch/` | mostly frozen | `loop.sh` harness, SQLite schema + logger, gallery renderer, per-iteration agent prompt |
 | `FROZEN` | — | the exact list of files the loop may never touch (enforced by `loop.sh` via git revert) |
@@ -32,7 +32,8 @@ uv pip install --python .venv/bin/python numpy pillow rasterio pystac-client tor
 
 # Frozen pipeline — any bbox works, named areas are just presets:
 .venv/bin/python -m pipeline.fetch --area berlin          # or: --name x --bbox w,s,e,n
-.venv/bin/python -m pipeline.relight --area berlin
+                                                          # fetches every capture in areas.yaml; existing ones are reused
+.venv/bin/python -m pipeline.relight --area berlin        # one relight/<bucket>.png per capture x lighting condition
 .venv/bin/python -m model.train --area berlin --out-dir runs/test --epochs 3
 .venv/bin/python -m pipeline.score --areas berlin --model-dir runs/test/models --out runs/test/metrics.json
 .venv/bin/python -m autoresearch.gallery                  # open gallery/index.html
@@ -51,11 +52,14 @@ calibrations collapsed dark-bucket coverage and were correctly scored FAIL.
 
 ## Phase 2 — running the autoresearch loop (run this yourself, separately)
 
-> **Current configuration: `berlin-slim`** (merged into `main` 2026-07-31).
+> **Current configuration: `berlin-slim`** (merged into `main` 2026-07-31),
+> **capture-holdout era** (branch `capture-holdout`, opened 2026-09-28).
 > Berlin only, raw daytime imagery, no synthetic relighting, figures off,
-> pivot gate off. See CLAUDE.md's "SCOPE OVERRIDE" for what it supersedes
-> and why — low-light is the full spec's goal, out of scope in this
-> configuration, and the relighting machinery is kept, not deleted.
+> pivot gate off. The model trains on three open survey photographs of
+> Berlin and is scored on a fourth it never sees — because the 0.040
+> champion, scored on any other photograph of the same ground, scored
+> 1.8-2.0 (random, and confident). See CLAUDE.md's "CAPTURE-HOLDOUT ERA" and
+> "SCOPE OVERRIDE" for what each supersedes and why.
 
 ```bash
 ./autoresearch/loop.sh 12               # run until the DB holds 12 experiments
@@ -130,16 +134,23 @@ configuration, reported as flown. Results are rendered as the
 .venv/bin/python -m sim.render_flightpath         # rebuild the page from sim/out/
 ```
 
-## Reference imagery (pipeline data v2) & licensing
+## Reference imagery (pipeline data v3) & licensing
 
 Fetching is driven by a **source registry** (`pipeline/sources.yaml`,
-frozen): for any bbox, the finest open-licensed source covering it wins,
-falling back to global Sentinel-2. The pipeline code stays fully
-bbox-generic — regional knowledge is config, not code.
+frozen): for any bbox, the finest open-licensed auto-pickable source
+covering it wins, falling back to global Sentinel-2. An area may also list
+**captures** in `areas.yaml` — several independent photographs of the same
+bbox, each from a *named* source, all warped onto one shared grid
+(`data/<area>/captures/<name>.tif`) so a crop at the same pixel shows the
+same ground in every one. `role: train` captures are what the model sees;
+the `role: eval` capture is a photograph it never sees and the §6 score is
+computed on it. The pipeline code stays fully bbox-generic — regional
+knowledge is config, not code.
 
 | Source | Covers | Native | License / attribution |
 |---|---|---|---|
 | [BB-BE DOP20 WMS](https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms?REQUEST=GetCapabilities&SERVICE=WMS) | Brandenburg **+ Berlin** | 20 cm | dl-de/by-2-0 — © GeoBasis-DE/LGB |
+| [Berlin TrueDOP 2022 / 2023 / 2024 WMS](https://gdi.berlin.de/services/wms/truedop_2024?SERVICE=WMS&REQUEST=GetCapabilities) (named captures only) | Berlin | 20 cm | dl-de/zero-2-0 — Geoportal Berlin |
 | [Bavaria DOP40 WMS](https://geoservices.bayern.de/od/wms/dop/v1/dop40?SERVICE=WMS&REQUEST=GetCapabilities) | Bavaria (Munich) | 40 cm | CC BY 4.0 — © Bayerische Vermessungsverwaltung |
 | [Hesse DOP20 WMS](https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows?SERVICE=WMS&REQUEST=GetCapabilities) | Hesse (Frankfurt) | 20 cm | dl-de/by-2-0 — © HVBG Hessen |
 | [Hamburg DOP WMS](https://geodienste.hamburg.de/wms_dop_zeitreihe_unbelaubt?Service=WMS&Request=GetCapabilities) | Hamburg | 20 cm | dl-de/by-2-0 — © FHH LGV |

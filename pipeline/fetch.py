@@ -10,8 +10,18 @@ exists (20-40 cm native, server-resampled to the target GSD), with global
 Sentinel-2 L2A (10 m/px, credential-free AWS COGs via Earth Search STAC) as
 fallback. No Google/Bing tiles anywhere, per spec.
 
+CAPTURES (2026-09-28, see pipeline/common.py). An area may list several
+captures — independent photographs of the same bbox (different survey year,
+season, sun angle), each fetched from a NAMED registry source onto the SAME
+grid, so a crop at (cx, cy) shows the same ground in every capture. They land
+in captures/<name>.tif; a capture whose file already exists is reused, never
+re-downloaded (the training raster must stay byte-identical across the era).
+Without a captures list an area gets one capture from the auto-picked source,
+exactly as before.
+
 Usage:
   python -m pipeline.fetch --area berlin
+  python -m pipeline.fetch --area berlin --captures truedop_2024 --force
   python -m pipeline.fetch --name mytown --bbox 9.10,48.70,9.20,48.76
 """
 
@@ -32,8 +42,8 @@ from rasterio.transform import from_origin
 from rasterio.vrt import WarpedVRT
 from rasterio.warp import transform_bounds
 
-from pipeline.common import (DATA_DIR, REPO_ROOT, area_dir, load_areas,
-                             parse_bbox, save_meta, utm_epsg_for)
+from pipeline.common import (DATA_DIR, REPO_ROOT, area_captures, area_dir,
+                             load_areas, parse_bbox, save_meta, utm_epsg_for)
 
 STAC_URL = "https://earth-search.aws.element84.com/v1/search"
 # Fixed default acquisition window so Sentinel fetches are reproducible.
@@ -50,14 +60,29 @@ def load_sources():
     return cfg["target_gsd_m"], cfg["sources"]
 
 
+def _covers(src, bbox):
+    cov = src["coverage"]
+    return (cov[0] <= bbox[0] and cov[1] <= bbox[1]
+            and cov[2] >= bbox[2] and cov[3] >= bbox[3])
+
+
 def pick_source(bbox, sources):
-    def contains(cov):
-        return (cov[0] <= bbox[0] and cov[1] <= bbox[1]
-                and cov[2] >= bbox[2] and cov[3] >= bbox[3])
-    candidates = [s for s in sources if contains(s["coverage"])]
+    """Finest auto-pickable source covering the bbox (named-only sources are
+    skipped — they exist for explicit captures)."""
+    candidates = [s for s in sources
+                  if s.get("auto_pick", True) and _covers(s, bbox)]
     if not candidates:
         raise SystemExit(f"no imagery source covers bbox {bbox}")
     return min(candidates, key=lambda s: s["native_gsd_m"])
+
+
+def named_source(name, bbox, sources):
+    src = next((s for s in sources if s["name"] == name), None)
+    if src is None:
+        raise SystemExit(f"unknown imagery source {name!r} in areas.yaml captures")
+    if not _covers(src, bbox):
+        raise SystemExit(f"source {name!r} does not cover bbox {bbox}")
+    return src
 
 
 def make_target_grid(bbox, gsd):
@@ -189,52 +214,111 @@ def fetch_sentinel(bbox, daterange, dst_crs, dst_transform, width, height):
 
 # --- entry point ----------------------------------------------------------
 
+def fetch_capture(src, bbox, dst_crs, dst_transform, width, height, gsd,
+                  daterange):
+    if src["kind"] == "wms":
+        return fetch_wms(src, dst_crs, dst_transform, width, height, gsd)
+    if src["kind"] == "sentinel2_stac":
+        return fetch_sentinel(bbox, daterange, dst_crs, dst_transform,
+                              width, height)
+    raise SystemExit(f"unknown source kind {src['kind']}")
+
+
 def fetch_area(name: str, bbox: list[float], data_dir=None,
-               daterange=DEFAULT_DATERANGE):
+               daterange=DEFAULT_DATERANGE, captures=None, only=None,
+               force=False):
+    """Fetch every capture of an area onto one shared grid.
+
+    captures: list of {name, source, role} (areas.yaml); None = the single
+    default capture from the auto-picked source. only: restrict to these
+    capture names. force: re-download captures whose .tif already exists.
+    """
     target_gsd, sources = load_sources()
-    src = pick_source(bbox, sources)
-    gsd = max(target_gsd, src["native_gsd_m"])
+    captures = captures or area_captures(None)
+    resolved = []
+    for c in captures:
+        src = (named_source(c["source"], bbox, sources) if c.get("source")
+               else pick_source(bbox, sources))
+        resolved.append((c, src))
+
+    # One grid for all captures: the GSD is set by the coarsest source, so a
+    # crop at (cx, cy) shows the same ground in every photograph.
+    gsd = max([target_gsd] + [src["native_gsd_m"] for _, src in resolved])
     epsg, dst_crs, dst_transform, width, height, (left, top) = \
         make_target_grid(bbox, gsd)
-    print(f"  source={src['name']} gsd={gsd} m/px grid={width}x{height}px")
-
-    if src["kind"] == "wms":
-        mosaic, extra = fetch_wms(src, dst_crs, dst_transform, width, height, gsd)
-    elif src["kind"] == "sentinel2_stac":
-        mosaic, extra = fetch_sentinel(bbox, daterange, dst_crs, dst_transform,
-                                       width, height)
-    else:
-        raise SystemExit(f"unknown source kind {src['kind']}")
-
-    coverage = float(((mosaic != 0).any(axis=0)).mean())
-    if coverage < 0.995:
-        print(f"WARNING: mosaic only {coverage*100:.1f}% covered")
+    print(f"  gsd={gsd} m/px grid={width}x{height}px "
+          f"captures={[c['name'] for c, _ in resolved]}")
 
     d = area_dir(name, data_dir)
-    d.mkdir(parents=True, exist_ok=True)
-    out = d / "reference.tif"
-    with rasterio.open(
-            out, "w", driver="GTiff", width=width, height=height, count=3,
-            dtype="uint8", crs=dst_crs, transform=dst_transform,
-            compress="lzw", tiled=True) as dst:
-        dst.write(mosaic)
+    cap_dir = d / "captures"
+    cap_dir.mkdir(parents=True, exist_ok=True)
+    meta_path = d / "meta.json"
+    old_caps = {}
+    if meta_path.exists():
+        with open(meta_path) as f:
+            old_caps = json.load(f).get("captures") or {}
 
+    cap_meta = {}
+    for c, src in resolved:
+        out = cap_dir / f"{c['name']}.tif"
+        record = dict(old_caps.get(c["name"]) or {})
+        if only and c["name"] not in only:
+            print(f"  [{c['name']}] not requested, keeping as is")
+        elif out.exists() and not force:
+            print(f"  [{c['name']}] reusing existing {out}")
+        else:
+            print(f"  [{c['name']}] source={src['name']}")
+            mosaic, extra = fetch_capture(src, bbox, dst_crs, dst_transform,
+                                          width, height, gsd, daterange)
+            coverage = float(((mosaic != 0).any(axis=0)).mean())
+            if coverage < 0.995:
+                print(f"WARNING: [{c['name']}] mosaic only {coverage*100:.1f}% covered")
+            with rasterio.open(
+                    out, "w", driver="GTiff", width=width, height=height,
+                    count=3, dtype="uint8", crs=dst_crs,
+                    transform=dst_transform, compress="lzw", tiled=True) as dst:
+                dst.write(mosaic)
+            record = {
+                "source": src["name"], "attribution": src["attribution"],
+                "coverage": coverage,
+                "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                **extra,
+            }
+            print(f"  wrote {out} ({coverage*100:.1f}% covered)")
+        if out.exists():
+            # Every capture must sit on THE grid — refuse a stray raster.
+            with rasterio.open(out) as chk:
+                if (chk.width, chk.height) != (width, height) or \
+                        chk.transform != dst_transform:
+                    raise SystemExit(f"{out} is not on the area grid "
+                                     f"({chk.width}x{chk.height}); delete it "
+                                     f"or re-run with --force")
+        record.setdefault("source", src["name"])
+        record.setdefault("attribution", src["attribution"])
+        record["role"] = c["role"]
+        cap_meta[c["name"]] = record
+
+    first = next(iter(cap_meta.values()))
     save_meta(name, {
         "area": name,
-        "pipeline_data_version": 2,
+        "pipeline_data_version": 3,
         "bbox": bbox,
         "epsg": epsg,
         "origin_xy": [left, top],
         "gsd_m": gsd,
         "width": width,
         "height": height,
-        "source": src["name"],
-        "coverage": coverage,
-        "fetched_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "attribution": src["attribution"],
-        **extra,
+        # Top-level source/attribution/coverage describe the FIRST capture
+        # (compat with readers that predate captures); the full record is
+        # under "captures".
+        "source": first.get("source"),
+        "coverage": first.get("coverage"),
+        "fetched_at": first.get("fetched_at"),
+        "attribution": first.get("attribution"),
+        "captures": cap_meta,
     }, data_dir)
-    print(f"  wrote {out} ({width}x{height}px @ {gsd}m, {coverage*100:.1f}% covered)")
+    print(f"  meta: {len(cap_meta)} capture(s), "
+          f"eval={[k for k, v in cap_meta.items() if v['role'] == 'eval'] or 'same photograph as training'}")
 
 
 def main():
@@ -245,21 +329,29 @@ def main():
     ap.add_argument("--data-dir", default=None)
     ap.add_argument("--daterange", default=DEFAULT_DATERANGE,
                     help="sentinel2 fallback only")
+    ap.add_argument("--captures", default=None,
+                    help="comma-separated capture names to (re)fetch; default all")
+    ap.add_argument("--force", action="store_true",
+                    help="re-download captures whose .tif already exists")
     args = ap.parse_args()
 
     data_dir = Path(args.data_dir) if args.data_dir else DATA_DIR
+    captures = None
     if args.area:
         areas = load_areas()
         if args.area not in areas:
             raise SystemExit(f"unknown area {args.area}; known: {list(areas)}")
         name, bbox = args.area, areas[args.area]["bbox"]
+        captures = area_captures(areas[args.area])
     elif args.name and args.bbox:
         name, bbox = args.name, parse_bbox(args.bbox)
     else:
         raise SystemExit("need --area OR (--name AND --bbox)")
 
     print(f"Fetching {name} bbox={bbox}")
-    fetch_area(name, bbox, data_dir, args.daterange)
+    fetch_area(name, bbox, data_dir, args.daterange, captures=captures,
+               only=args.captures.split(",") if args.captures else None,
+               force=args.force)
 
 
 if __name__ == "__main__":

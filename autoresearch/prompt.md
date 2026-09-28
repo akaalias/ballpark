@@ -1,18 +1,58 @@
 # Autoresearch experiment — the design stage
 
 You are one experiment of an autonomous research loop for UAV geolocalization.
-Read `CLAUDE.md`'s "BRANCH OVERRIDE" section first, then §3, §4 and §6.
-The harness (loop.sh) will train, score, log, and keep/revert AFTER you exit —
-you only design the experiment.
+Read `CLAUDE.md`'s "CAPTURE-HOLDOUT ERA" section first, then "SCOPE OVERRIDE",
+then §3, §4 and §6. The harness (loop.sh) will train, score, log, and
+keep/revert AFTER you exit — you only design the experiment.
 
-## THE GOAL: MEMORIZE ONE BOUNDING BOX. OVERFITTING IS THE FEATURE.
+## THE GOAL: MEMORIZE ONE BOUNDING BOX — THE GROUND, NOT ONE PHOTOGRAPH OF IT
 
 This branch builds a **visual memory of Berlin**, not a model that reasons
 about aerial imagery in general. One model, one bbox, deployed only over that
 bbox. It is *supposed* to know this specific city by heart. You are not trying
-to generalize to other places, other lighting, or unmapped ground — none of
-those are measured, and designing for them costs capacity you need for
-memorizing.
+to generalize to other places or to unmapped ground.
+
+**But it must know the CITY, not one picture of the city.** This era exists
+because the previous champion did not. Measured on 2026-09-28, same eval
+crops, same grid, only the pixels changed:
+
+| what the 0.040 champion was scored on | mission | usable | false fix | median |
+|---|---|---|---|---|
+| the photograph it trained on (Brandenburg DOP20) | 0.040 | 96.5% | 0.5% | 27 m |
+| the same raster, +20 added to every pixel value | 1.453 | 1.5% | 46.8% | 3.1 km |
+| the same raster, 1 px Gaussian blur | 1.271 | 14.2% | 41.2% | 1.3 km |
+| the same raster, shifted 3 px | 0.040 | 96.8% | 0.8% | 27 m |
+| Berlin TrueDOP 2022 / 2023 / 2024 (other open surveys, same ground) | 1.87 / 1.78 / 1.87 | ≤1.2% | 79–87% | 3.3–3.9 km |
+
+A random guess over the box misses by 3.6 km. The model had memorised one
+photograph's pixel intensities and fine texture (rotation was its only
+augmentation); any other exposure of the same ground was a foreign image, and
+its confidence head — trained on the same photograph — stayed 97% confident
+while wrong. 390 confident predictions on a foreign photograph collapsed onto
+40 map cells, two of them absorbing 225. Colour-matching the foreign
+photograph to the training one recovered abstention (coverage 97% → 61%) but
+not accuracy (median still 3.1 km): intensity is what the confidence keyed on;
+the fix itself rode texture and shadow, which change between surveys.
+
+**So the eval now asks about a photograph the model has never seen.** Berlin
+has four independent open captures on one grid (`areas.yaml`): the model
+trains on three (Brandenburg DOP20 summer canopy, TrueDOP 2022 leaf-off,
+TrueDOP 2023 early spring) and is scored on the fourth (TrueDOP 2024), which
+it never sees in any form. Season, sun angle, shadows, cars, construction and
+colour balance all differ between captures. The three training captures are
+also scored, as `train_capture_diagnostics` in metrics.json — LOGGED ONLY,
+never part of the primary — so every experiment records its
+memorisation-vs-ground gap. Read them: a design that scores 0.05 on the
+training photographs and 1.9 on the held-out one has learned the pictures,
+not the place.
+
+What this implies for design, without prescribing the answer: whatever
+survives a change of photograph must be learned in TRAINING (the aircraft's
+camera is a fifth photograph nobody has). Decode-time tricks cannot reach it.
+Photometric robustness alone is not enough — colour matching did not recover
+accuracy — but it is clearly part of it. Capacity spent on pixel-exact
+fingerprints of three photographs is capacity wasted; capacity spent on the
+structure they share is the point.
 
 **How the split works, because it determines what a good design looks like:**
 
@@ -34,9 +74,11 @@ unanswerable task for a memorization model, and the likely reason ~60 earlier
 experiments plateaued. Do not design as if that were still true.
 
 **Scope:** ONE locale (Berlin), ONE lighting condition (raw daytime imagery,
-no synthetic relighting — the relighting machinery is disabled on this branch).
-There is no cross-lighting robustness to reason about and no other area's
-texture to generalize to.
+no synthetic relighting — the relighting machinery is disabled on this branch),
+FOUR photographs of it (three for training, one held out — see above). There
+is no synthetic-lighting robustness to reason about and no other area's
+texture to generalize to; there IS cross-photograph robustness, and it is the
+whole score.
 
 ## THE METRIC IS THE PRODUCT REQUIREMENT, NOT AN ERROR STATISTIC
 
@@ -110,7 +152,7 @@ actually begun memorizing. If your design improves the geometric mean while
      "init_strategy": "from-scratch | pretrained:<name>",
      "eli5": "2-4 sentences for a smart non-ML reader: what you changed and why it might help, in everyday language — analogies welcome, zero jargon",
      "architecture": {"stages": [
-       {"name": "Camera frame", "detail": "128×128 px daytime crop, Berlin only, no synthetic lighting variants", "changed": false},
+       {"name": "Camera frame", "detail": "128×128 px daytime crop, Berlin only; trained on three survey photographs, scored on a fourth it never saw", "changed": false},
        {"name": "Feature extractor", "detail": "plain-language description", "changed": false},
        {"name": "…", "detail": "…", "changed": true}
      ]}
@@ -163,7 +205,9 @@ actually begun memorizing. If your design improves the geometric mean while
 - Stay within the deployment gates: exported ONNX ≤ 4 MiB per area, host
   latency proxy ≤ 250 ms (see pipeline/score.py).
 - Keep one experiment tractable to train. This branch trains Berlin only, on
-  a single GPU; an inherently expensive per-sample mechanism (e.g. many-round
+  a laptop GPU, and every epoch now covers THREE photographs (the training
+  loop in `model/train.py` iterates `buckets(meta, "train")`, so an epoch is
+  ~3x the old one); an inherently expensive per-sample mechanism (e.g. many-round
   iterative solves over thousands of votes per crop) can still push a round
   into hours. Budget the per-crop cost so a round finishes in a sensible
   wall-time — an idea that can't be evaluated in a round can't be kept.

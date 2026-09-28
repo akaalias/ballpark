@@ -23,6 +23,10 @@ keep/revert after you exit. Your only job is a faithful implementation.
    improvements, refactors, or extra changes of your own.
 3. Preserve the fixed contracts: `train.py`'s CLI
    (`--area --out-dir --data-dir --epochs --max-crops-per-bucket --seed`),
+   the data contract — training reads ONLY the buckets returned by
+   `pipeline.common.buckets(meta, "train")` (`relight/<bucket>.png`); the
+   eval capture (`buckets(meta, "eval")`) must never be opened by anything
+   under `model/`, in any form, or the experiment is void —
    the ONNX export contract in `model/model.py`'s docstring, exported ONNX
    ≤ 4 MiB per area, host latency proxy ≤ 250 ms (see pipeline/score.py).
 4. Syntax check when done:
