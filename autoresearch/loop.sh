@@ -293,9 +293,9 @@ while :; do
 
   # 1. Two-stage agent (models chosen per task — design is the creative/
   #    strategic work, implementation is focused code editing):
-  #      stage 1 DESIGN_MODEL (default Sonnet): pre-registers the experiment +
+  #      stage 1 DESIGN_MODEL (default Fable 5.1, claude-fable-5-1): pre-registers the experiment +
   #        an implementation_brief in runs/pending_experiment.json; no code edits.
-  #      stage 2 IMPL_MODEL (default Sonnet): applies the brief to model/.
+  #      stage 2 IMPL_MODEL (default Opus 5.5, claude-opus-5-5): applies the brief to model/.
   # Snapshot the exact prompts handed to the agents — part of the experiment
   # record (§7 lineage) even when SKIP_AGENT skips the calls.
   cp autoresearch/prompt.md "$RUN_DIR/prompt.md"
@@ -382,7 +382,7 @@ PIVOTNOTE
     rm -f runs/pending_experiment.json
     T0=$(date +%s)
     "$CLAUDE_BIN" -p "$(cat "$RUN_DIR/prompt.md")" \
-      --model "${DESIGN_MODEL:-claude-fable-5}" \
+      --model "${DESIGN_MODEL:-claude-fable-5-1}" \
       --permission-mode acceptEdits \
       --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(sqlite3:*)" \
       --output-format json </dev/null >"$RUN_DIR/agent_design.json" \
@@ -410,7 +410,7 @@ ${AGENT_RETRY_SLEEP:-1800}s before next experiment"
     # needs a real code diff to exist — this half of the gate doesn't, so
     # checking it here saves ~2-3 min plus a whole extra Claude invocation
     # whenever the design alone already fails to be a complete rethink.
-    AGENT_MODEL_DESIGN="$($PY -m autoresearch.agentmeta "$RUN_DIR/agent_design.json" 2>/dev/null || echo "${DESIGN_MODEL:-claude-fable-5}")"
+    AGENT_MODEL_DESIGN="$($PY -m autoresearch.agentmeta "$RUN_DIR/agent_design.json" 2>/dev/null || echo "${DESIGN_MODEL:-claude-fable-5-1}")"
     if [ -n "$FROZEN_STAGES" ]; then
       UNCHANGED_STAGES="$($PY - runs/pending_experiment.json <<'PYCHECK'
 import json, sys
@@ -453,7 +453,7 @@ PYCHECK
     report_phase implement
     T0=$(date +%s)
     "$CLAUDE_BIN" -p "$(cat "$RUN_DIR/prompt_impl.md")" \
-      --model "${IMPL_MODEL:-claude-opus-5}" \
+      --model "${IMPL_MODEL:-claude-opus-5-5}" \
       --permission-mode acceptEdits \
       --allowedTools "Read,Edit,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(sqlite3:*)" \
       --output-format json </dev/null >"$RUN_DIR/agent_impl.json" \
@@ -461,7 +461,7 @@ PYCHECK
            snapshot_model_src "$RUN_DIR"
            git checkout -- model/ 2>/dev/null || true; continue; }
     T_IMPL=$(( $(date +%s) - T0 ))
-    AGENT_MODEL_IMPL="$($PY -m autoresearch.agentmeta "$RUN_DIR/agent_impl.json" 2>/dev/null || echo "${IMPL_MODEL:-claude-opus-5}")"
+    AGENT_MODEL_IMPL="$($PY -m autoresearch.agentmeta "$RUN_DIR/agent_impl.json" 2>/dev/null || echo "${IMPL_MODEL:-claude-opus-5-5}")"
     echo "agents finished (design: $AGENT_MODEL_DESIGN ${T_DESIGN}s, impl: $AGENT_MODEL_IMPL ${T_IMPL}s)"
   fi
   [ -f runs/pending_experiment.json ] && mv runs/pending_experiment.json "$RUN_DIR/experiment.json"

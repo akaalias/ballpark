@@ -391,8 +391,10 @@ undoing the merge.
   (~15-20 min) and isn't load-bearing for the actual research question.
 - **§9 (from-scratch vs. pretrained, unified vs. dispatcher):** still the
   loop's call, unchanged.
-- **Model assignment:** design runs on **Fable**, implementation on
-  **Opus 5** — a deliberate, branch-scoped reversal of the main branch's
+- **Model assignment:** design runs on **Fable** (since 2026-09-28
+  **Fable 5.1**, `claude-fable-5-1`), implementation on **Opus** (since
+  2026-09-28 **Opus 5.5**, `claude-opus-5-5`; both IDs verified headless
+  that day) — a deliberate, branch-scoped reversal of the main branch's
   "Haiku 4.5 + Sonnet 5, never Opus" policy (see memory:
   `model-selection-policy`). Flagged, not silently applied — both models
   were previously pulled from rotation for real problems (Fable hit its
