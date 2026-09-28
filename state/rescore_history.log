@@ -1,0 +1,79 @@
+
+== era 0 Bootstrap: 7 experiments
+   #  1  INCOMPARABLE (pre-1 m/px imagery)  Bootstrap baseline — naive TinyLocNet di
+   #  2  INCOMPARABLE (pre-1 m/px imagery)  Harness smoke test (SKIP_AGENT loop.sh i
+   #  3  1.9958  usable=0.003 false=0.998  Data v2 baseline — same TinyLocNet on 1 m/px DOP
+   #  4  2.0008  usable=0.000 false=1.000  Split rebalance — 360 m blocks so the no-leakage
+   #  5  1.9958  usable=0.003 false=0.998  Grid-cell classification + within-cell offset re
+   #  6  2.0008  usable=0.000 false=1.000  Per-epoch crop resampling — train on fresh posit
+   #  7  2.0008  usable=0.000 false=1.000  Relight v1 — ambient-compensated auto-exposure +
+
+== era 1 Four areas, six lighting buckets: 62 experiments
+   #  1  2.0008  usable=0.000 false=1.000  Starting baseline — naive TinyLocNet, from-scrat
+   #  2  2.0008  usable=0.000 false=1.000  DSNT-style spatial probability field over the ma
+   #  3  1.9908  usable=0.005 false=0.995  Argmax-anchored local soft-argmax decode replace
+   #  4  2.0008  usable=0.000 false=1.000  ACE-style dense per-patch scene-coordinate regre
+   #  5  1.9958  usable=0.003 false=0.998  Hierarchical coarse-to-fine supervision of the p
+   #  6  2.0008  usable=0.000 false=1.000  Per-epoch rotation resampling replaces the one-s
+   #  7  2.0008  usable=0.000 false=1.000  Scale training coverage 7.5x: 6,000 of ~45k avai
+   #  8  1.9958  usable=0.003 false=0.998  Deployment-envelope residual encoder: 4.2× capac
+   #  9  1.9908  usable=0.005 false=0.995  Cross-lighting contrastive pairs: NT-Xent metric
+   # 10  2.0008  usable=0.000 false=1.000  Layout-aware field head: squeezed 8×8 spatial co
+   # 11  1.9908  usable=0.000 false=0.990  ImageNet-pretrained MobileNetV3-Small trunk repl
+   # 12  1.9933  usable=0.003 false=0.995  Luminance-gated dark-expert field head blended w
+   # 14  1.9958  usable=0.003 false=0.998  Peak-commit decode: β-sharpened softmax replaces
+   # 15  1.8483  usable=0.005 false=0.853  Selective prediction: field-shape confidence hea
+   # 16  1.9558  usable=0.000 false=0.955  C4 rotation-vote field: average field logits ove
+   # 17  1.9633  usable=0.000 false=0.963  Nuisance-randomized training renders: each bucke
+   # 18  1.9008  usable=0.000 false=0.900  Dense per-patch field voting: 64 local place vot
+   # 19  1.9108  usable=0.005 false=0.915  Off-site distractor patching: half the training 
+   # 20  1.9483  usable=0.000 false=0.948  Per-epoch training-set resampling: a fresh 6,000
+   # 22  1.9158  usable=0.000 false=0.915  Train-only per-patch place supervision: every fe
+   # 24  1.9533  usable=0.000 false=0.953  Daytime-redraw auxiliary, rerun: exp 23 was OOM-
+   # 25  1.9108  usable=0.003 false=0.912  Convergence-scaled training: 3× optimizer steps 
+   # 28  1.6633  usable=0.007 false=0.670  Rerun, never scored: unseen-ground confidence ca
+   # 29  1.9508  usable=0.003 false=0.953  Stride-8 fine-layout tap: the field scorer reads
+   # 30  1.9533  usable=0.003 false=0.955  Supervised lighting dispatcher: day/dusk/night s
+   # 31  1.9908  usable=0.003 false=0.993  Neural-map correlation field: localization becom
+   # 32  1.7733  usable=0.000 false=0.772  Risk-controlled abstention: six per-lighting-reg
+   # 35  1.9283  usable=0.000 false=0.927  Confusability-weighted location sampling: oversa
+   # 36  1.9858  usable=0.000 false=0.985  Hardest-impostor margin hinge, retested on the c
+   # 37  1.6733  usable=0.000 false=0.672  Multi-hypothesis coordinate regression replaces 
+   # 39  1.7258  usable=0.003 false=0.728  Coordinate-generated map field: replace 1,024 fr
+   # 40  1.9558  usable=0.000 false=0.955  Coarse-to-fine geolocalization: a shared conv fi
+   # 42  1.9958  usable=0.000 false=0.995  Domain-native contrastive pretraining replaces t
+   # 45  1.8158  usable=0.003 false=0.818  Retrieve-then-rerank: a coarse field proposes a 
+   # 49  1.2308  usable=0.003 false=0.233  Dense per-patch coordinate consensus (re-run aft
+   # 50  1.6733  usable=0.010 false=0.682  Spatial mixture-of-experts: a coarse macro-regio
+   # 51  1.2633  usable=0.000 false=0.263  Residual vector-quantized location codebook: har
+   # 52  1.9708  usable=0.003 false=0.973  Continuous Gaussian-mixture location regression 
+   # 53  1.8357  usable=0.003 false=0.838  ShuffleNetV2 trunk with FiLM-conditioned single 
+   # 54  1.9258  usable=0.000 false=0.925  Memory-safe flying delighting translator + from-
+   # 55  1.8258  usable=0.000 false=0.825  Dense scene-coordinate voting with a differentia
+   # 59  1.9533  usable=0.000 false=0.953  Independently-trained day/night specialist twins
+   # 60  1.9908  usable=0.000 false=0.990  Corrected exp-38 retry: fixed illumination-invar
+   # 63  1.8108  usable=0.005 false=0.815  From-scratch trunk + domain-contrastive pretrain
+   # 65  1.7383  usable=0.000 false=0.738  Harness smoke test — SKIP_AGENT loop.sh iteratio
+
+== era 2 Berlin only: 5 experiments
+   #  1  1.9958  usable=0.003 false=0.998  Baseline seed: original TinyLocNet, fresh berlin
+   #  3  1.9533  usable=0.000 false=0.953  Re-land the validated 64x64 grid-classification 
+   #  4  1.9883  usable=0.003 false=0.990  Hierarchical decode: 16x16 coarse-cell classific
+   #  5  UNRECOVERABLE  Per-epoch position resampling: expose all ~45k B
+
+== era 3 Viewpoint holdout: 4 experiments
+   #  1  2.0000  (derived)  Baseline seed on the corrected viewpoint-holdout
+   #  2  1.8400  (derived)  Classify-then-refine: 32x32 map-cell softmax + w
+   #  3  1.9950  (derived)  Coverage over repetition: spend the same 48k-ste
+   #  4  1.8400  (derived)  Re-implementation of lost experiment 2 — classif
+
+== era 4 Mission score: 5 experiments
+   #  1  2.0008  usable=0.000 false=1.000  Baseline seed: current model/ code, no design ag
+   #  3  1.8708  usable=0.007 false=0.877  Full-lattice coverage training for the map-cell 
+   #  4  1.8933  usable=0.007 false=0.900  Local belief pooling decode: confidence = softma
+   #  5  1.8733  usable=0.000 false=0.873  Decode-consistent training targets: bilinear ten
+
+== era 5 Held-out photograph: 0 experiments
+
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/lineage_history.sqlite — 83 experiments across 6 eras
+  derived=4  gated=17  holdout=2  incomparable=2  rescored=57  unrecoverable=1

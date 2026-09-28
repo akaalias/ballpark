@@ -1,0 +1,17 @@
+[
+  {
+    "area": "berlin",
+    "n_train_crops": 1745088,
+    "epochs": 8,
+    "device": "mps",
+    "train_seconds": 2780.6,
+    "onnx_bytes": 3079093,
+    "init": "from-scratch",
+    "n_cells": 2970,
+    "distinct_vantages_seen": 1745088,
+    "full_lattice_epochs": true,
+    "final_train_top1": 0.7924,
+    "chunk_size": 4096,
+    "max_crops_per_bucket_arg": 6000
+  }
+]

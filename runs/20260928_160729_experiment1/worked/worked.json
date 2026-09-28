@@ -1,0 +1,1 @@
+{"area": "berlin", "bucket": "truedop_2024", "miss_m": 1523.2, "conf": 0.466, "has_field": false, "field_k": null, "peak_pct": null, "uniform_pct": null, "lat_true": 52.499954, "lon_true": 13.352935, "lat_pred": 52.50784, "lon_pred": 13.334533, "frame": "worked/frame.png", "map": "worked/map.png"}

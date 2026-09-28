@@ -1,0 +1,42 @@
+{
+  "kind": "development",
+  "areas": [
+    {
+      "area": "berlin",
+      "buckets": {
+        "truedop_2024": {
+          "n_eval": 400,
+          "coverage": 0.92,
+          "usable_fix_rate": 0.005,
+          "false_fix_rate": 0.915,
+          "abstain_rate": 0.08,
+          "mission_score": 1.910794,
+          "geomean_error_m": 2410.85,
+          "median_error_m": 2960.84,
+          "mean_error_m": 3056.34,
+          "p10_error_m": 805.42,
+          "p25_error_m": 1627.83,
+          "score": 1.910794,
+          "capture": "truedop_2024",
+          "lighting": "asis"
+        }
+      },
+      "gates": {
+        "model_bytes": 3302661,
+        "latency_ms_host_proxy": 6.21
+      },
+      "region_holdout": {
+        "n_eval": 400,
+        "bucket": "truedop_2024",
+        "coverage": 0.9125,
+        "usable_fix_rate": 0.0075,
+        "false_fix_rate": 0.905,
+        "median_error_m": 3336.05,
+        "mean_error_m": 3184.59,
+        "note": "unseen-region diagnostic; logged only, never scored"
+      }
+    }
+  ],
+  "primary_mission_score": 1.910794,
+  "target_m": 100.0
+}

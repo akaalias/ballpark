@@ -1,1 +1,31 @@
 Working tree dirty — committing pending changes as a pre-loop checkpoint.
+=== Experiment 1 (0/1 recorded)  run=20260928_160729_experiment1  parent=c7c5c9307c6505af359932ea97d8857c325b5a9b ===
+--- train berlin:
+[berlin] epoch 8/8 loss=2.3091 top1=0.7924 mean_max_softmax=0.4746 views=218136 lr=1.00e-04
+{"area": "berlin", "n_train_crops": 1745088, "epochs": 8, "device": "mps", "train_seconds": 2780.6, "onnx_bytes": 3079093, "init": "from-scratch", "n_cells": 2970, "distinct_vantages_seen": 1745088, "full_lattice_epochs": true, "final_train_top1": 0.7924, "chunk_size": 4096, "max_crops_per_bucket_arg": 6000}
+PRIMARY worst-case mission score: 1.6508 (0=every frame a usable fix, 1=abstains everywhere, 2=confidently wrong everywhere)
+samples -> runs/20260928_160729_experiment1/samples
+On branch capture-holdout
+Your branch is up to date with 'origin/capture-holdout'.
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   state/loop.log
+	modified:   state/phase.json
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	runs/20260928_160729_experiment1/
+	state/rescore_cache/
+	state/rescore_history.log
+
+no changes added to commit (use "git add" and/or "git commit -a")
+KEPT: mission score 1.650759 (improved from 1e18)
+1
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (1 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (59 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (83 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 10 trunk nodes, 5 abandoned, 6 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
