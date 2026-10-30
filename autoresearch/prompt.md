@@ -10,7 +10,10 @@ keep/revert AFTER you exit — you only design the experiment.
 This branch builds a **visual memory of Berlin**, not a model that reasons
 about aerial imagery in general. One model, one bbox, deployed only over that
 bbox. It is *supposed* to know this specific city by heart. You are not trying
-to generalize to other places or to unmapped ground.
+to generalize to other places or to unmapped ground. **A technique that works
+for Berlin and for nowhere else is a complete success** — exploit anything
+about Berlin's layout, texture, colours or surveys that helps; another
+locale gets its own loop and may need an entirely different design.
 
 **But it must know the CITY, not one picture of the city.** This era exists
 because the previous champion did not. Measured on 2026-09-28, same eval
