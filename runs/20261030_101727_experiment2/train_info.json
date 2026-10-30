@@ -1,0 +1,29 @@
+[
+  {
+    "area": "berlin",
+    "n_train_crops": 1745088,
+    "epochs": 8,
+    "device": "mps",
+    "train_seconds": 3499.9,
+    "onnx_bytes": 3079093,
+    "init": "from-scratch",
+    "n_cells": 2970,
+    "distinct_vantages_seen": 1745088,
+    "full_lattice_epochs": true,
+    "final_train_top1": 0.7882,
+    "chunk_size": 4096,
+    "max_crops_per_bucket_arg": 6000,
+    "capture_sampling": "paired-position interleave, shared heading per position",
+    "captures": [
+      "bb_dop20",
+      "truedop_2022",
+      "truedop_2023"
+    ],
+    "positions_per_chunk": 1365,
+    "final_train_top1_by_capture": {
+      "bb_dop20": 0.7814,
+      "truedop_2022": 0.7873,
+      "truedop_2023": 0.7959
+    }
+  }
+]

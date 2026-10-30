@@ -1,0 +1,11 @@
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+[berlin] 72712 lattice positions, 2970 cells, device=mps
+[berlin] epoch 1/8 loss=5.4611 top1=0.1737 mean_max_softmax=0.0721 views=218136 lr=9.66e-04 top1_by_capture={'bb_dop20': 0.1622, 'truedop_2022': 0.1728, 'truedop_2023': 0.1862}
+[berlin] epoch 2/8 loss=3.5968 top1=0.5031 mean_max_softmax=0.2487 views=218136 lr=8.68e-04 top1_by_capture={'bb_dop20': 0.4778, 'truedop_2022': 0.5003, 'truedop_2023': 0.5311}
+[berlin] epoch 3/8 loss=3.0253 top1=0.6352 mean_max_softmax=0.3529 views=218136 lr=7.22e-04 top1_by_capture={'bb_dop20': 0.6163, 'truedop_2022': 0.6296, 'truedop_2023': 0.6596}
+[berlin] epoch 4/8 loss=2.7556 top1=0.6930 mean_max_softmax=0.4038 views=218136 lr=5.50e-04 top1_by_capture={'bb_dop20': 0.68, 'truedop_2022': 0.6876, 'truedop_2023': 0.7113}
+[berlin] epoch 5/8 loss=2.5868 top1=0.7298 mean_max_softmax=0.4331 views=218136 lr=3.78e-04 top1_by_capture={'bb_dop20': 0.718, 'truedop_2022': 0.7277, 'truedop_2023': 0.7437}
+[berlin] epoch 6/8 loss=2.4782 top1=0.7546 mean_max_softmax=0.4500 views=218136 lr=2.32e-04 top1_by_capture={'bb_dop20': 0.7447, 'truedop_2022': 0.7526, 'truedop_2023': 0.7664}
+[berlin] epoch 7/8 loss=2.4046 top1=0.7750 mean_max_softmax=0.4602 views=218136 lr=1.34e-04 top1_by_capture={'bb_dop20': 0.7665, 'truedop_2022': 0.7733, 'truedop_2023': 0.7854}
+[berlin] epoch 8/8 loss=2.3603 top1=0.7882 mean_max_softmax=0.4659 views=218136 lr=1.00e-04 top1_by_capture={'bb_dop20': 0.7814, 'truedop_2022': 0.7873, 'truedop_2023': 0.7959}
+{"area": "berlin", "n_train_crops": 1745088, "epochs": 8, "device": "mps", "train_seconds": 3499.9, "onnx_bytes": 3079093, "init": "from-scratch", "n_cells": 2970, "distinct_vantages_seen": 1745088, "full_lattice_epochs": true, "final_train_top1": 0.7882, "chunk_size": 4096, "max_crops_per_bucket_arg": 6000, "capture_sampling": "paired-position interleave, shared heading per position", "captures": ["bb_dop20", "truedop_2022", "truedop_2023"], "positions_per_chunk": 1365, "final_train_top1_by_capture": {"bb_dop20": 0.7814, "truedop_2022": 0.7873, "truedop_2023": 0.7959}}
