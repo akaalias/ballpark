@@ -25,6 +25,15 @@ from EVERY training capture under ONE shared heading, and the whole
 single-survey and the epoch never ends on one photograph. Views per epoch are
 unchanged (len(crops) * len(imgs)); per-capture top1 is logged.
 
+NUISANCE RANDOMISATION: three photographs were absorbed as three pixel-exact
+fingerprints (+20 brightness or a 1 px blur on a training photograph broke the
+model). Every training view is now re-photographed at random on the device by
+augment_views() — blur, exposure, per-channel colour gain, contrast,
+brightness, gamma, saturation, sensor noise, drawn independently per view (AUG)
+— so one survey's exposure/sharpness fingerprint no longer predicts the cell
+and only structure shared across the photographs does. Training only; the
+exported graph is unchanged.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -44,6 +53,53 @@ from pipeline.dataset import extract_crop, list_crops
 
 CHUNK_SIZE = 4096  # lattice positions extracted at a time (bounds memory)
 BATCH_SIZE = 64
+# Per-view photometric + sharpness nuisance ranges (training only).
+AUG = dict(blur_p=0.7, blur_sigma_max=1.5, blur_taps=7, exposure=(0.75, 1.30),
+           channel_gain=(0.85, 1.15), contrast=(0.6, 1.4),
+           brightness=(-0.12, 0.12), gamma=(0.7, 1.4), saturation=(0.5, 1.5),
+           noise_sigma_max=0.03)
+
+
+def augment_views(x: torch.Tensor, aug: dict = AUG) -> torch.Tensor:
+    """Re-photograph each view at random. x: float [B,3,H,W] in [0,1] on its
+    device; every parameter is drawn independently per view. Blur first, so
+    the noise added last is not blurred. Fully vectorised (MPS/CUDA/CPU)."""
+    B, C, H, W = x.shape
+    dev = x.device
+
+    def U(lo, hi, *shape):
+        return lo + (hi - lo) * torch.rand(*shape, device=dev)
+
+    # a. separable Gaussian blur, per-sample sigma (sigma~0 -> delta kernel)
+    taps = aug["blur_taps"]; r = taps // 2
+    sigma = U(0.0, aug["blur_sigma_max"], B)
+    sigma = torch.where(torch.rand(B, device=dev) < aug["blur_p"], sigma,
+                        torch.zeros_like(sigma))
+    t = torch.arange(-r, r + 1, device=dev, dtype=x.dtype)
+    k = torch.exp(-t.unsqueeze(0) ** 2 / (2 * sigma.clamp_min(0.05).unsqueeze(1) ** 2))
+    k = k / k.sum(dim=1, keepdim=True)                       # [B, taps]
+    k = k.repeat_interleave(C, dim=0)                        # [B*C, taps]
+    y = x.reshape(1, B * C, H, W)
+    y = F.conv2d(F.pad(y, (0, 0, r, r), mode="reflect"),
+                 k.view(B * C, 1, taps, 1), groups=B * C)
+    y = F.conv2d(F.pad(y, (r, r, 0, 0), mode="reflect"),
+                 k.view(B * C, 1, 1, taps), groups=B * C)
+    x = y.reshape(B, C, H, W)
+    # b. exposure gain x per-channel colour gain
+    x = x * (U(*aug["exposure"], B, 1, 1, 1) * U(*aug["channel_gain"], B, C, 1, 1))
+    # c. contrast about the crop's own mean
+    m = x.mean(dim=(1, 2, 3), keepdim=True)
+    x = m + U(*aug["contrast"], B, 1, 1, 1) * (x - m)
+    # d. brightness offset
+    x = x + U(*aug["brightness"], B, 1, 1, 1)
+    # e. gamma
+    x = x.clamp(1e-4, 1) ** U(*aug["gamma"], B, 1, 1, 1)
+    # f. saturation toward per-pixel grey
+    grey = x.mean(dim=1, keepdim=True)
+    x = grey + U(*aug["saturation"], B, 1, 1, 1) * (x - grey)
+    # g. additive sensor noise
+    x = x + torch.randn_like(x) * U(0.0, aug["noise_sigma_max"], B, 1, 1, 1)
+    return x.clamp(0, 1)
 
 
 def load_scene(area: str, data_dir: Path):
@@ -169,7 +225,7 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
             perm = torch.randperm(n)
             for i in range(0, n, BATCH_SIZE):
                 idx = perm[i:i + BATCH_SIZE]
-                xb = x_u8[idx].to(device).float() / 255.0
+                xb = augment_views(x_u8[idx].to(device).float() / 255.0)
                 cb, pb = cell_idx[idx].to(device), pos[idx].to(device)
                 logits, off_pred = model.training_outputs(xb)
                 soft_t = make_soft_targets(pb, meta, model.n_cells, gw, gh)
@@ -178,6 +234,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                 opt.zero_grad(); loss.backward(); opt.step()
                 with torch.no_grad():
                     loss_sum += loss.item() * len(idx)
+                    # top1 is measured on AUGMENTED views, so it reads lower
+                    # than experiment 2's 0.79 by design; judge by eval.
                     # top1 is vs. the CONTAINING cell, so it now reads lower
                     # than exp 4's 0.83 BY DESIGN: border views are supposed
                     # to split mass across the tent's cells. Judge
@@ -218,7 +276,9 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "final_train_top1": round(final_top1, 4),
         "chunk_size": CHUNK_SIZE,
         "max_crops_per_bucket_arg": max_crops_per_bucket,
-        "capture_sampling": "paired-position interleave, shared heading per position",
+        "capture_sampling": ("paired-position interleave, shared heading per position, "
+                             "per-view photometric+sharpness nuisance randomisation"),
+        "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
