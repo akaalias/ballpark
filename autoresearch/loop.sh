@@ -44,7 +44,11 @@ EPOCHS="${EPOCHS:-8}"
 TRAIN_CROPS="${TRAIN_CROPS:-6000}"
 HOLDOUT_EVERY="${HOLDOUT_EVERY:-5}"
 HOLDOUT_ENABLED="${HOLDOUT_ENABLED:-0}"  # berlin-slim branch: off by default (§5 dropped)
-DRAW_FIGURES="${DRAW_FIGURES:-0}"  # berlin-slim branch: off by default (cuts ~15-20 min/iteration; gallery/heatmaps stay on)
+DRAW_FIGURES="${DRAW_FIGURES:-kept}"  # 1 = every design, before training (main-branch default);
+                                      # kept = only experiments that become the new best, after
+                                      #        scoring (capture-holdout default: the designs that
+                                      #        matter get a figure, reverted ones cost nothing);
+                                      # 0 = never
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 PY=".venv/bin/python"
 STATE="state"; mkdir -p "$STATE" runs
@@ -152,13 +156,13 @@ snapshot_model_src() {
 FIGURE_MODEL="${FIGURE_MODEL:-${IMPL_MODEL:-claude-sonnet-5}}"
 draw_figure() {
   local rundir="$1"
-  local design="runs/pending_experiment.json"
+  local design="${2:-runs/pending_experiment.json}"
   [ "${SKIP_AGENT:-0}" = "1" ] && return 0
   # Figures are token-expensive (the agent iterates against figcheck's
-  # geometry — minutes and a real slice of subscription usage each). On by
-  # default so every experiment is illustrated; set DRAW_FIGURES=0 at launch
-  # to skip them entirely and conserve usage.
-  [ "${DRAW_FIGURES:-1}" = "1" ] || return 0
+  # geometry — minutes and a real slice of subscription usage each). The
+  # caller decides WHEN (every design up front, or kept ones after scoring —
+  # see DRAW_FIGURES); this function only draws for the record it is given.
+  [ "${DRAW_FIGURES:-1}" = "0" ] && return 0
   [ -f "$design" ] || return 0
   # Only draw when the design actually carries an architecture to illustrate.
   $PY -c "import json,sys; d=json.load(open('$design')); \
@@ -400,8 +404,9 @@ ${AGENT_RETRY_SLEEP:-1800}s before next experiment"
     # gate below can reject the experiment — so every experiment ends up with
     # one regardless of outcome (kept, reverted, or rejected pre-training).
     # The SVG is merged into runs/pending_experiment.json and rides along to
-    # whichever exit path this experiment takes.
-    draw_figure "$RUN_DIR"
+    # whichever exit path this experiment takes. With DRAW_FIGURES=kept the
+    # figure is drawn later instead, only if the experiment becomes the best.
+    [ "${DRAW_FIGURES:-1}" = "1" ] && draw_figure "$RUN_DIR"
 
     # Early pivot-completeness check: if a pivot was demanded, verify the
     # DESIGN's own self-report already shows every non-frozen stage changed
@@ -642,6 +647,9 @@ $(cat "$RUN_DIR/experiment.json")" || true
     KEPT_COUNT=$(( $(cat "$STATE/kept_count" 2>/dev/null || echo 0) + 1 )); echo "$KEPT_COUNT" > "$STATE/kept_count"
     CONCLUSION="KEPT — mission score improved ($BEST -> $METRIC); change committed as $(git rev-parse --short HEAD)"
     echo "KEPT: mission score $METRIC (improved from $BEST)"
+    # DRAW_FIGURES=kept: a design that became the new best earns its figure
+    # now, from its own record, before that record is logged.
+    [ "${DRAW_FIGURES:-1}" = "kept" ] && draw_figure "$RUN_DIR" "$RUN_DIR/experiment.json"
   else
     git checkout -- model/ 2>/dev/null || true
     CONCLUSION="REVERTED — mission score did not improve ($METRIC vs best $BEST); change discarded"

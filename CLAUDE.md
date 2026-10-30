@@ -81,6 +81,13 @@ files, not the research record.
   add it to training "just to see". Changing it is a new era.
 - The loop pushes to `origin/capture-holdout`. `state/research_status` is
   `live` here; `main`'s is `finished`.
+- **Figures:** `DRAW_FIGURES` defaults to `kept` on this branch (2026-10-30):
+  the architecture figure is drawn after scoring, only for an experiment
+  that became the new best, from its own `experiment.json`. `1` draws every
+  design up front (main's default), `0` never. A figure for a finished run
+  can be backfilled with the same prompt (`autoresearch/prompt_figure.md`)
+  and merged into `experiments.sqlite.arch_svg`; the baseline carries the
+  mission era's experiment-5 figure because it is that code unchanged.
 - Before merging: re-run `rescore_history`, re-render, then the
   `freeze_site_assets` routine — the heatmaps now show the 2024 photograph.
 
