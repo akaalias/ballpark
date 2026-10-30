@@ -1744,6 +1744,18 @@ def chart_svg(exps):
 # ---------------------------------------------------------------------------
 HISTORY_DB = REPO_ROOT / "lineage_history.sqlite"
 
+# The era whose rows live in experiments.sqlite (everything else is read from
+# the history DB). Taken from the same table rescore_history builds the eras
+# from, so a new era never leaves the research log numbering the live rows
+# with the previous era's prefix — which is exactly what happened on
+# 2026-10-30, when the capture-holdout baseline rendered as "5.1" next to the
+# mission era's own 5.1.
+try:
+    from autoresearch.rescore_history import ERAS as _RESCORE_ERAS
+    CURRENT_ERA = next(e["key"] for e in _RESCORE_ERAS if e.get("native"))
+except Exception:  # noqa: BLE001 — a broken import must not take the gallery down
+    CURRENT_ERA = "mission"
+
 # One band per era. Low-chroma washes drawn from the site's own three hues, so
 # the bands recede behind the data: grey for the eras spent lost, ochre as the
 # evaluation is repaired, the accent for the era that worked. Identity is never
@@ -1921,7 +1933,7 @@ def history_chart_svg(rows, eras):
         # The id must match that row's DOM id exactly: the current era keeps
         # bare numbers (older deep links point at those), earlier eras are
         # qualified because their numbering restarts.
-        uid = str(r["src_id"]) if r["era"] == "mission" else f"{r['era']}-{r['src_id']}"
+        uid = str(r["src_id"]) if r["era"] == CURRENT_ERA else f"{r['era']}-{r['src_id']}"
         common = f"class='pt' data-id='{uid}' data-tip=\"{tip}\""
         if prov == "holdout":
             p.append(f"<circle {common} cx='{cx:.1f}' cy='{mt+ih-6}' r='3.5' "
@@ -1992,7 +2004,7 @@ def history_rows_html(hist_rows, eras):
     by_era = {e["era_index"]: e for e in eras}
     out = []
     for r in reversed(hist_rows):
-        if r["era"] == "mission":       # the current era renders in full above
+        if r["era"] == CURRENT_ERA:       # the current era renders in full above
             continue
         era = by_era.get(r["era_index"], {})
         uid = f"{r['era']}-{r['src_id']}"
@@ -4438,7 +4450,7 @@ def render_paths(exps):
     if hist:
         figs = [dict(r, uid=f"{r['era']}-{r['src_id']}",
                      no=f"{r['era_index'] + 1}.{r['src_id']}",
-                     anchor=(str(r["src_id"]) if r["era"] == "mission"
+                     anchor=(str(r["src_id"]) if r["era"] == CURRENT_ERA
                              else f"{r['era']}-{r['src_id']}"))
                 for r in hist
                 if r["kind"] != "holdout_check"
@@ -5227,7 +5239,7 @@ def render_lineage(exps):
                 "kind": kind, "pivot": False, "category": r["category"] or "",
                 "era": r["era"], "eraLabel": r["era_label"], "prov": prov,
                 # Only the current era has a row in the research log to open.
-                "link": r["era"] == "mission",
+                "link": r["era"] == CURRENT_ERA,
                 "parents": [last_kept] if last_kept is not None else [],
             })
             if kind == "kept":
@@ -5338,8 +5350,7 @@ def render():
         f"<span class='era-sw' style='background:{ERA_TINT.get(e['key'], '')}'></span>"
         for e in hist_eras) or "<span class='era-sw'></span>"
     # "5 experiments, 4 kept" is true of the table below and false of the
-    # project: the current era is the fifth, and the four experiments that
-    # solved it stand on 78 that came before.
+    # project: the current era stands on every experiment that came before.
     if hist_rows:
         n_all = sum(1 for r in hist_rows if r["kind"] != "holdout_check")
         c_agent = sum(r["cost_agent"] or 0 for r in hist_rows)
@@ -5465,14 +5476,14 @@ def render():
 
     # Numbering restarted at 1 with each era, so a bare "#3" is ambiguous
     # across a table that now spans all of them. Rows carry <era>.<n>.
-    cur_era = next((e for e in hist_eras if e["key"] == "mission"), None)
+    cur_era = next((e for e in hist_eras if e["key"] == CURRENT_ERA), None)
     cur_prefix = f"{cur_era['era_index'] + 1}." if cur_era else ""
     cur_era_label = esc(cur_era["label"]) if cur_era else ""
-    cur_tint = ERA_TINT.get("mission", "") if cur_era else ""
+    cur_tint = ERA_TINT.get(CURRENT_ERA, "") if cur_era else ""
     # The current era's rows come from experiments.sqlite, but their cost
     # accounting lives in the generated cross-era record — join on id so both
     # halves of the table cost the same way.
-    hist_by_id = {r["src_id"]: r for r in hist_rows if r["era"] == "mission"}
+    hist_by_id = {r["src_id"]: r for r in hist_rows if r["era"] == CURRENT_ERA}
 
     for e in reversed(exps):
         kept_cls = " kept-row" if (e["kept"] and e["kind"] != "holdout_check") else ""
