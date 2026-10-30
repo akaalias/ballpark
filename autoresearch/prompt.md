@@ -146,6 +146,22 @@ actually begun memorizing. If your design improves the geometric mean while
    measured (`rescored` = its exported model re-run today; `gated` = never
    had a working model; `incomparable` = cannot be placed on this ruler).
 
+   **Reuse is encouraged, not merely allowed.** Eighty-three experiments of
+   thinking went into that table, and most of it was never fairly tested on
+   this question. If an earlier design — or a piece of one, or a combination
+   of two — looks like it addresses "a photograph it has never seen", take
+   it: say in your hypothesis which experiment(s) you are building on and
+   why they fit now. The implementations survive, so the implementation
+   agent can lift code instead of re-deriving it:
+   * `runs/<artifacts_dir>/experiment.json` — the pre-registered method and
+     `implementation_brief` of every experiment, all eras;
+   * `runs/<artifacts_dir>/model_src/` — the exact `model/*.py` that ran, for
+     every experiment from 31 July on (6 run directories carry one);
+   * `git show <git_commit>:model/model.py` — for any experiment the loop
+     kept, in any era (`git_commit` is in the history row).
+   Point the implementation brief at the file to copy from. The one thing
+   that does NOT transfer is the old verdict.
+
    **Plateau rule (advisory only on this branch):** the harness's automatic
    pivot enforcement (mandatory-pivot preamble, backbone-carry rejection) is
    disabled on berlin-slim — see CLAUDE.md "BRANCH OVERRIDE". Nothing will

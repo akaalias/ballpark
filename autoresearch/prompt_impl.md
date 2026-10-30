@@ -32,6 +32,17 @@ keep/revert after you exit. Your only job is a faithful implementation.
 4. Syntax check when done:
    `.venv/bin/python -c "import model.train, model.model"`
 
+## Reusing earlier implementations
+
+The design brief may name an earlier experiment to build on. Its code is on
+disk: `runs/<artifacts_dir>/model_src/*.py` (the exact files that ran, from
+31 July on) and `runs/<artifacts_dir>/experiment.json` (its brief), or
+`git show <commit>:model/model.py` for a kept experiment of any era. Read
+and copy from these freely — a lifted block that worked beats a rewrite —
+but every contract above still binds, and the data contract in particular:
+old code read `LIGHTING_BUCKETS` and `relight/asis.png`; it must read
+`buckets(meta, "train")` now.
+
 ## Hard rules
 
 - Edit ONLY files under `model/`. Never edit `runs/pending_experiment.json`,
