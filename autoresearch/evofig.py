@@ -39,24 +39,44 @@ regenerates it rather than redrawing it.
 DAY_W = {20: 824.0, 21: 304.0, 22: 928.0, 23: 824.0, 24: 200.0, 25: 96.0,
          26: 96.0, 27: 96.0, 28: 96.0, 29: 96.0, 30: 928.0, 31: 1031.8,
          32: 346.7}
+# 2026-09-28 the capture-holdout era opened (day 90), 2026-10-30 its loop
+# started (day 122). The two months between hold one commit (the rename to
+# Ballpark) and the month between held nothing: 6 px a day, so the quiet
+# reads as quiet instead of stretching the figure by a screen per week.
+for _d in range(33, 90):
+    DAY_W[_d] = 6.0
+DAY_W[90] = 928.0
+for _d in range(91, 122):
+    DAY_W[_d] = 6.0
+DAY_W[122] = 520.0
+LAST_DAY = 122
 DAY_X = {21: 306.5}
-for _d in range(22, 33):
+for _d in range(22, LAST_DAY + 1):
     DAY_X[_d] = DAY_X[_d - 1] + DAY_W[_d - 1]
 DAY_X[20] = DAY_X[21] - DAY_W[20]
-LAST_DAY = 32
+GRID_MIN_W = 60.0         # a day narrower than this gets no gridline/label
 
 
 def DAY_LABEL(d: int) -> str:
-    return f"{d} Jul" if d <= 31 else f"{d - 31} Aug"
+    """Day-of-project (20 = 20 July 2026, 32 = 1 August, 90 = 28 September,
+    122 = 30 October) -> calendar label."""
+    import datetime
+    date = datetime.date(2026, 7, 20) + datetime.timedelta(days=d - 20)
+    return f"{date.day} {date.strftime('%b')}"
 
 
-VIEW_W, VIEW_H = 5349, 608
 TRUNK_Y = 256.0
 BRANCH_Y = 216.0          # the berlin-slim fork's own lane
 TRUNK_X0 = 52.0
-TRUNK_X1 = 5060.0         # where the line stops
+TRUNK_X1 = DAY_X[LAST_DAY] + DAY_W[LAST_DAY] - 40.0   # where the line stops
+VIEW_W, VIEW_H = int(TRUNK_X1 + 289), 608
 SPLIT_D = 31.38           # berlin-slim: the trunk forks here
-GAP = (24.0200, 30.7700, "six days of silence")
+GAPS = [
+    (24.0200, 30.7700, "six days of silence"),
+    (32.35, 89.80, "two months of silence &mdash; one commit, the rename to Ballpark"),
+    (90.95, 121.85, "a month on hold &mdash; the laptop was needed"),
+]
+GAP = GAPS[0]             # kept for anything that still reads the old name
 
 
 def x(day: float) -> float:
@@ -78,6 +98,8 @@ TRUNK_NODES = [
     (31.38, "berlin-slim branch", "below"),
     (31.6001, "0.040 - 96.5% usable", "below"),
     (32.10, "back to berlin-slim", "below"),
+    (90.75, "held-out photograph", "below"),
+    (122.47, "loop resumes, locally", "above"),
 ]
 
 # (from_day, to_day, lane_y, label, end_label) -- tried, then abandoned
@@ -92,6 +114,9 @@ DEAD = [
     # 1 August; the trunk it left continues past its terminator, which is
     # the whole point of drawing it up here rather than as the live line.
     (31.6100, 31.9200, 128, "Prignitz probe · 0.113", "era opened, then closed"),
+    # Google's tiles were the first "second photograph" tried, and the one that
+    # can never be data: their terms forbid it. Kept as a hand-run smoke test.
+    (90.55, 90.68, 64, "Google tiles as a second photograph", "licence: smoke test only"),
 ]
 
 # (from_day, to_day, lane_y, label, end_label) -- ran as mainline, replaced
@@ -102,6 +127,9 @@ SUPER = [
     (23.60, 30.96, 448, "Modal A100 - serverless", "credits out → local M1"),
     (23.56, 23.85, 512, "Berlin-only scope cut", "→ 4 areas restored"),
     (31.5201, 31.5501, 512, "Geometric mean", "→ mission score"),
+    # Lane 352 rather than 320: the region-holdout branch's end label sits at
+    # y 324 right where this one would start, 82 px later on the same lane.
+    (31.5501, 90.75, 352, "Same-photograph evaluation", "→ held-out photograph"),
 ]
 
 # (day, label) -- something broke
@@ -123,6 +151,7 @@ MERGES = [
     (31.2006, 31.4701, 192, "it is never shown the places it is tested on"),
     (31.2967, 31.5501, 128, "the score must BE the product requirement"),
     (31.4213, 31.6001, 64, "it was starved, not refuted"),
+    (90.58, 90.75, 192, "it knew one photograph, not the city"),
 ]
 
 # (from_day, to_day, lane_y, label, end_label) -- ran, still open.
@@ -178,17 +207,22 @@ def build_svg() -> str:
          f"aria-label='research process as a branching graph'>"]
 
     for d in range(21, LAST_DAY + 1):             # day rules
+        if DAY_W[d] < GRID_MIN_W:                 # compressed quiet days
+            continue
         gx = x(d)
         p.append(f"<line class='evo-grid' x1='{_f(gx)}' y1='30' "
                  f"x2='{_f(gx)}' y2='574'/>")
         p.append(f"<text class='evo-day' x='{_f(gx + 6)}' y='22'>"
                  f"{DAY_LABEL(d)}</text>")
 
-    g0, g1, glab = x(GAP[0]), x(GAP[1]), GAP[2]   # the silence
-    p.append(f"<rect class='evo-gap' x='{_f(g0)}' y='242' "
-             f"width='{_f(g1 - g0)}' height='28'/>")
-    p.append(f"<text class='evo-gaplab' x='{_f((g0 + g1) / 2)}' y='235'>"
-             f"{glab}</text>")
+    for i, (ga, gb, glab) in enumerate(GAPS):     # the silences
+        g0, g1 = x(ga), x(gb)
+        gy = 242 if ga < SPLIT_D else 202         # on whichever line is live
+        key = "gap" if i == 0 else f"gap{i}"
+        p.append(f"<rect class='evo-gap' data-k='{key}' x='{_f(g0)}' y='{gy}' "
+                 f"width='{_f(g1 - g0)}' height='28'/>")
+        p.append(f"<text class='evo-gaplab' data-k='{key}' x='{_f((g0 + g1) / 2)}' "
+                 f"y='{gy - 7}'>{glab}</text>")
 
     # The trunk stops at the fork; what continues is main, dormant since.
     p.append(f"<line class='evo-trunk' x1='{_f(TRUNK_X0)}' y1='{TRUNK_Y:.0f}' "
@@ -258,3 +292,7 @@ def build_svg() -> str:
                          lab, end, "openend"))
 
     return "".join(p) + "</svg>"
+
+
+# Where the newest work sits, for the page's opening scroll.
+LATEST_X = x(TRUNK_NODES[-1][0])
