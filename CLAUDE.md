@@ -307,9 +307,13 @@ break by accident:
   continuous is the re-scored mission score, because the ruler no longer
   changes at the boundaries.
 - **`kept`/`discarded` is the decision made AT THE TIME**, under whatever
-  metric was then in force — which is why black dots sit high in the early
-  bands. Never re-derive those flags from the re-scored number; say the two
-  disagree instead.
+  metric was then in force. Never re-derive those flags from the re-scored
+  number. **Since 2026-10-30 (user decision) the chart's dot colour no longer
+  shows that flag:** black = the dot lowered the running best on today's
+  ruler, grey = it did not; the at-the-time verdict stays in every dot's
+  tooltip and in the research-log table's KEPT/REVERTED column. The lineage
+  page keeps at-the-time colours because its arcs ARE the at-the-time
+  descent.
 
 `state/research_status` holds `finished`, which retires the pinned live banner
 (it becomes a footer line) and the pulsing in-progress table row. Set it back

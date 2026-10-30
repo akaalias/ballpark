@@ -1987,15 +1987,18 @@ def history_chart_svg(rows, eras):
 
     # --- best achieved so far, on today's ruler, unbroken across eras ---
     best, pts = None, []
+    new_best = set()   # rows that set a new best ON TODAY'S RULER
     for i, r in enumerate(rows):
         v = r["mission_score"]
         if v is None or r["kind"] == "holdout_check":
             continue
         if best is None:
             best, pts = v, [(x(i), y(v))]
+            new_best.add(i)
         elif v < best:
             pts += [(x(i), y(best)), (x(i), y(v))]
             best = v
+            new_best.add(i)
     if pts:
         pts.append((x(n - 1), y(best)))
         p.append("<path d='M" + " L".join(f"{a:.1f},{b:.1f}" for a, b in pts)
@@ -2047,7 +2050,11 @@ def history_chart_svg(rows, eras):
         elif r["kind"] == "holdout_check":
             p.append(f"<circle {common} cx='{cx:.1f}' cy='{y(v):.1f}' r='4' "
                      f"fill='#fffff8' stroke='#8a6a1e' stroke-width='1.5'/>")
-        elif r["kept"]:
+        elif i in new_best:
+            # Black = a new best on TODAY'S ruler (user decision 2026-10-30;
+            # until then black meant "kept at the time"). The at-the-time
+            # verdict is still in the tooltip, so the disagreement between
+            # the two is readable per dot rather than per colour.
             p.append(f"<circle {common} cx='{cx:.1f}' cy='{y(v):.1f}' r='3.6' fill='#111'/>")
         else:
             p.append(f"<circle {common} cx='{cx:.1f}' cy='{y(v):.1f}' r='3' fill='#b9b6a6'/>")
@@ -5650,12 +5657,14 @@ def render():
             f"logged record; {n_by.get('gated', 0)} failed a deployment gate and "
             f"had no working model to score, then or now. Nothing was converted "
             f"by a fudge factor. "
-            f"<b>Black means the loop kept it</b> &mdash; judged at the time, "
-            f"under whatever metric was then in force, which is why kept "
-            f"experiments sit high in the early bands: the old metric was "
-            f"rewarding the wrong thing. The step line is the best mission score "
-            f"anyone had actually achieved, and it is unbroken across the "
-            f"boundaries because the ruler no longer changes at them.</p>")
+            f"<b>Black means a new best on today&rsquo;s ruler</b> &mdash; the "
+            f"dot that lowered the step line. The step line is the best mission "
+            f"score anyone had actually achieved, and it is unbroken across the "
+            f"boundaries because the ruler no longer changes at them. What the "
+            f"loop decided <i>at the time</i>, under whatever metric was then in "
+            f"force, is in each dot&rsquo;s tooltip; the two disagree often in "
+            f"the early bands, because the old metrics rewarded the wrong "
+            f"thing.</p>")
     else:
         chart_heading = ("Mission score per experiment — (1 &minus; usable-fix "
                          "rate) + false-fix rate, lower is better")
@@ -5697,8 +5706,8 @@ def render():
 </div>
 <header class="dash-head">
   <div class="dash-meta">
-    <span class="k" title="This change improved the worst-case error and was committed."><span class="dot kept"></span>Kept improvement</span>
-    <span class="k" title="No improvement — the code change was reverted; only the record remains."><span class="dot disc"></span>Discarded</span>
+    <span class="k" title="On the chart: this experiment lowered the running best on today's ruler. In the table: the loop kept it at the time."><span class="dot kept"></span>New best</span>
+    <span class="k" title="On the chart: not a new best on today's ruler. In the table: reverted at the time; only the record remains."><span class="dot disc"></span>Not a new best</span>
     <span class="k" title="Best mission score achieved so far."><span class="bar"></span>Running best</span>
     <span class="k" title="The goal: mission score 0 — every frame a usable fix."><span class="bar dash"></span>Goal (score 0)</span>
     <span class="k" title="Violated a deployment gate (model size, latency, or abstained too much) — scored as failure regardless of accuracy."><span class="x">×</span>Gated fail</span>
