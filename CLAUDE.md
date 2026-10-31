@@ -305,7 +305,10 @@ break by accident:
   Each wipe restarted the search from a fresh baseline, so a link across a
   boundary asserts a descent that never happened. The one thing that *is*
   continuous is the re-scored mission score, because the ruler no longer
-  changes at the boundaries.
+  changes at the boundaries. Since 2026-10-31 the chart also carries a thin
+  dashed line per band — that era's own running best on today's ruler —
+  which stops at the band's edge for the same reason. Alexis kept it
+  provisionally ("yes, for now"); drop it only if asked.
 - **`kept`/`discarded` is the decision made AT THE TIME**, under whatever
   metric was then in force. Never re-derive those flags from the re-scored
   number. **Since 2026-10-30 (user decision) the chart's dot colour no longer
