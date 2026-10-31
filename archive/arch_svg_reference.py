@@ -453,9 +453,20 @@ def exp6():
 
 
 SVGS = {1: exp1(), 2: exp2(), 3: exp3(), 4: exp4(), 5: exp5(), 6: exp6()}
-conn = connect()
-for exp_id, s in SVGS.items():
-    conn.execute("UPDATE experiments SET arch_svg=? WHERE id=?", (s, exp_id))
-    print(f"exp {exp_id}: {len(s)} bytes")
-conn.commit()
-conn.close()
+
+# ARCHIVED (mission era, experiments 1-6 of THAT era). Figure agents read this
+# file as a style reference and may run it; on 2026-10-31 one did, and the DB
+# write below silently replaced the capture-holdout era's figures for
+# experiments 1-4 with these mission-era drawings. The write now needs an
+# explicit flag; without it the script only reports sizes.
+if __name__ == "__main__":
+    if "--write-db" in sys.argv:
+        conn = connect()
+        for exp_id, s in SVGS.items():
+            conn.execute("UPDATE experiments SET arch_svg=? WHERE id=?", (s, exp_id))
+            print(f"exp {exp_id}: {len(s)} bytes written")
+        conn.commit()
+        conn.close()
+    else:
+        for exp_id, s in SVGS.items():
+            print(f"exp {exp_id}: {len(s)} bytes (dry run; --write-db to store)")

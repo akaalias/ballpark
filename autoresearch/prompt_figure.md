@@ -102,7 +102,10 @@ lines (small kernel square on one face, faint lines converging to a cell
 on the next) so the encoder reads as one computation, not boxes in a
 row. `archive/arch_svg_reference.py` is the concrete reference
 implementation of this entire visual language — read it and reuse its
-helper geometry for any stage that already has one.
+helper geometry for any stage that already has one. **Read it; never run
+it.** It is an archived script for a different era's experiments and, run
+with its write flag, overwrites other experiments' figures in the database.
+Your only output is the one file named below.
 
 ## Hard rules
 

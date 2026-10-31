@@ -186,7 +186,7 @@ draw_figure() {
     --model "$FIGURE_MODEL" \
     --permission-mode acceptEdits \
     --max-turns "${FIGURE_MAX_TURNS:-45}" \
-    --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*)" \
+    --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(.venv/bin/python3:*)" \
     --output-format json </dev/null >"$rundir/agent_figure.json" \
     || echo "figure agent exited non-zero (turn limit?) — using whatever figure it wrote"
   # Merge the agent's architecture_svg into the design record (loop.sh does
