@@ -215,6 +215,7 @@ h1.home-h1{margin:28px auto 32px}
   animation:live-row-pulse 1.8s ease-in-out infinite}
 .live-row td{color:var(--muted);font-style:italic}
 .live-row .status-badge{font-style:normal}
+.idle-row td{color:var(--muted)}
 @keyframes live-row-pulse{
   0%,100%{box-shadow:inset 0 0 0 1.5px rgba(140,47,31,.3);background:rgba(140,47,31,.03)}
   50%{box-shadow:inset 0 0 0 1.5px rgba(140,47,31,.85);background:rgba(140,47,31,.08)}
@@ -576,6 +577,7 @@ pre.howto{max-width:780px;margin:18px auto 0;padding:16px 20px;
   border:1.5px solid var(--ochre);background:transparent}
 .bar{width:16px;height:0;border-top:2px solid var(--ink);display:inline-block}
 .bar.dash{border-top-style:dashed;border-top-color:var(--accent)}
+.bar.era-best{border-top-width:1px;border-top-style:dashed;border-top-color:var(--accent);opacity:.85}
 .vrule{width:0;height:12px;border-left:1px dashed var(--faint);display:inline-block}
 .x{color:var(--accent);font-weight:700}
 .tri{width:0;height:0;border-left:4.5px solid transparent;
@@ -1237,13 +1239,36 @@ def live_row(next_id):
     # raw.githubusercontent.com, which returns 403/404 for a PRIVATE repo — so
     # for local viewing (and any private deployment) it never resolves and the
     # row was stuck on "Design not finished yet" even when the design existed.
-    pre = {}
+    pre, pj = {}, {}
     try:
         pj = json.loads((REPO_ROOT / "state" / "phase.json").read_text())
         if int(pj.get("iter") or -1) == int(next_id):
             pre = pj.get("design") or {}
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        pre = {}
+        pre, pj = {}, {}
+    # Between batches the loop is not running but the research is not
+    # finished either. The loop reports phase 'idle' when it exits normally;
+    # a phase.json still naming an experiment the DB already holds means it
+    # exited without reaching that line (2026-10-31: the row pulsed as
+    # "experiment 6 — design not finished yet" for a day, under experiment
+    # 5's title borrowed by the JS). Either way: a quiet idle row, no clock.
+    try:
+        idle = (pj.get("phase") == "idle"
+                or (pj.get("phase") in ("synced", "publish", "score")
+                    and int(pj.get("iter") or -1) < int(next_id)))
+    except (ValueError, TypeError):
+        idle = False
+    if idle:
+        best = pj.get("best")
+        best_s = f" — the best result ({best:.3f}) stands" if isinstance(best, (int, float)) else ""
+        return f"""<tr class="row-main idle-row" id="r{next_id}">
+<td></td><td class="num">{next_id}</td>
+<td class="title-cell"><i>No experiment running right now — the last batch finished{best_s}. The next one starts when the loop is relaunched.</i></td>
+<td><span class="cat">—</span></td>
+<td class="num">…</td>
+<td class="num">idle</td>
+<td class="num">—</td>
+<td><span class="status-badge live"><span class="dot"></span>live</span></td></tr>"""
     pre_title = esc(pre.get("title") or f"experiment #{next_id} in progress…")
     pre_cat = esc(pre.get("category") or "—")
     pre_blocks = ""
@@ -1327,7 +1352,11 @@ def live_row(next_id):
     fetch(RAW+'?t='+Date.now()).then(function(r){{return r.ok?r.json():null}})
       .then(function(j){{
         if(!(j&&j.phase))return;
-        st=j;freshen(j);showDesign(j.design);
+        st=j;freshen(j);
+        // Only this experiment's design belongs on this row: a phase.json
+        // still carrying the previous experiment's design (loop idle, or
+        // stopped before 'idle' was reported) must not retitle the row.
+        if(Number(j.iter)==={next_id}) showDesign(j.design);
       }}).catch(function(){{}});
   }}
   refresh(); setInterval(refresh, 30000);
@@ -1342,7 +1371,7 @@ def live_row(next_id):
   }});
   function tick(){{
     var now=Date.now()/1000, msg;
-    if(st && st.phase==='idle'){{
+    if(st && (st.phase==='idle' || (st.phase==='synced' && Number(st.iter)<{next_id}))){{
       msg=st.note || 'no experiment running right now — the last batch finished; the best result stands';
     }} else if(st && (st.phase==='waiting')){{
       msg='paused — waiting for agent capacity; resumes automatically';
@@ -1999,6 +2028,32 @@ def history_chart_svg(rows, eras):
             pts += [(x(i), y(best)), (x(i), y(v))]
             best = v
             new_best.add(i)
+    # --- each era's OWN running best, thin, under the global line ---
+    # The global line answers "best anyone had achieved by then"; once an era
+    # starts above it (every wipe restarts from a baseline) the global line
+    # runs flat and the era's own descent is invisible. The thin line is that
+    # descent: the best within the era so far, on today's ruler. It never
+    # crosses a boundary (a wipe is not ancestry) and sits under the global
+    # line where the two coincide. Added 2026-10-31 at Alexis's request.
+    for era in eras:
+        lo_i, hi_i = era["seq_start"] - 1, era["seq_end"] - 1
+        ebest, epts = None, []
+        for i in range(max(lo_i, 0), min(hi_i, n - 1) + 1):
+            r = rows[i]
+            v = r["mission_score"]
+            if v is None or r["kind"] == "holdout_check":
+                continue
+            if ebest is None:
+                ebest, epts = v, [(x(i), y(v))]
+            elif v < ebest:
+                epts += [(x(i), y(ebest)), (x(i), y(v))]
+                ebest = v
+        if epts and hi_i > lo_i:
+            epts.append((x(min(hi_i, n - 1)), y(ebest)))
+            p.append("<path class='era-best' d='M"
+                     + " L".join(f"{a:.1f},{b:.1f}" for a, b in epts)
+                     + f"' fill='none' stroke='{ERA_INK.get(era['key'], '#6b6a60')}' "
+                     f"stroke-width='1' stroke-dasharray='4 3' opacity='.85'/>")
     if pts:
         pts.append((x(n - 1), y(best)))
         p.append("<path d='M" + " L".join(f"{a:.1f},{b:.1f}" for a, b in pts)
@@ -5708,7 +5763,8 @@ def render():
   <div class="dash-meta">
     <span class="k" title="On the chart: this experiment lowered the running best on today's ruler. In the table: the loop kept it at the time."><span class="dot kept"></span>New best</span>
     <span class="k" title="On the chart: not a new best on today's ruler. In the table: reverted at the time; only the record remains."><span class="dot disc"></span>Not a new best</span>
-    <span class="k" title="Best mission score achieved so far."><span class="bar"></span>Running best</span>
+    <span class="k" title="Best mission score achieved so far, by anyone, on today's ruler — continuous across eras."><span class="bar"></span>Running best</span>
+    <span class="k" title="The best within one evaluation era so far, on today's ruler. Each era restarted from its own baseline, so this is the descent the global line hides when an era starts above it. Never crosses an era boundary."><span class="bar era-best"></span>Era's own best</span>
     <span class="k" title="The goal: mission score 0 — every frame a usable fix."><span class="bar dash"></span>Goal (score 0)</span>
     <span class="k" title="Violated a deployment gate (model size, latency, or abstained too much) — scored as failure regardless of accuracy."><span class="x">×</span>Gated fail</span>
     <span class="k" title="Region-holdout check on genuinely untrained ground — logged for honesty, never used to decide keep/revert."><span class="ring"></span>Holdout check</span>

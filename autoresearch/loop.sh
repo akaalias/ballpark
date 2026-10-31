@@ -25,8 +25,9 @@
 #          HOLDOUT_EVERY  (default 5)
 #          HOLDOUT_ENABLED (default 0 on this branch; main-branch default 1 —
 #                          §5 Hamburg holdout dropped for berlin-slim)
-#          DRAW_FIGURES   (default 0 on this branch; main-branch default 1 —
-#                          agent-drawn architecture SVG cut, ~15-20 min/iter)
+#          DRAW_FIGURES   (default 1: every design gets its architecture
+#                          figure before training; "kept" = only new bests,
+#                          after scoring; 0 = never)
 #          CLAUDE_BIN     (default "claude")
 #          SKIP_AGENT=1   (run train/score/log only — no code change; smoke test)
 set -euo pipefail
@@ -44,11 +45,11 @@ EPOCHS="${EPOCHS:-8}"
 TRAIN_CROPS="${TRAIN_CROPS:-6000}"
 HOLDOUT_EVERY="${HOLDOUT_EVERY:-5}"
 HOLDOUT_ENABLED="${HOLDOUT_ENABLED:-0}"  # berlin-slim branch: off by default (§5 dropped)
-DRAW_FIGURES="${DRAW_FIGURES:-kept}"  # 1 = every design, before training (main-branch default);
-                                      # kept = only experiments that become the new best, after
-                                      #        scoring (capture-holdout default: the designs that
-                                      #        matter get a figure, reverted ones cost nothing);
-                                      # 0 = never
+DRAW_FIGURES="${DRAW_FIGURES:-1}"  # 1 = every design, before training (default again since 2026-10-31:
+                                   #     Alexis wants every experiment illustrated, reverted ones too);
+                                   # kept = only experiments that become the new best, after
+                                   #        scoring (was this branch's default on 2026-10-30);
+                                   # 0 = never
 CLAUDE_BIN="${CLAUDE_BIN:-claude}"
 PY=".venv/bin/python"
 STATE="state"; mkdir -p "$STATE" runs
