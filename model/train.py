@@ -34,6 +34,15 @@ brightness, gamma, saturation, sensor noise, drawn independently per view (AUG)
 and only structure shared across the photographs does. Training only; the
 exported graph is unchanged.
 
+VIEWS ARE CUT ON THE DEVICE (infrastructure, 2026-10-31, issue #3): the
+training captures sit on the GPU as one uint8 tensor and gpu_crops() cuts and
+rotates each mini-batch there (same geometry as pipeline.dataset.extract_crop,
+within 1/255), and running stats stay on the device until the epoch ends.
+This replaced one-at-a-time PIL rotation on the CPU and per-step GPU->CPU
+reads: ~24% faster per epoch on the M1, more on a CUDA card. Keep new
+per-view work on the device and avoid .item()/.cpu()/int()/float() on device
+tensors inside the step loop — each one stalls the GPU queue.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -49,7 +58,7 @@ from PIL import Image
 
 from model.model import CELL_PX, build_model, export_onnx, grid_dims, loss_fn
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
-from pipeline.dataset import extract_crop, list_crops
+from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
 CHUNK_SIZE = 4096  # lattice positions extracted at a time (bounds memory)
 BATCH_SIZE = 64
@@ -115,30 +124,56 @@ def load_scene(area: str, data_dir: Path):
     return meta, names, imgs, crops
 
 
-def extract_chunk(meta, imgs, crops, indices, rng):
-    """Extract one chunk of PAIRED vantages: every position in `indices` from
-    every capture in `imgs`, with one shared heading per position. Returns
-    (x_uint8 [N*K,3,H,W], cell_idx [N*K], pos [N*K,2], cap_idx [N*K]).
+def chunk_views(meta, crop_xy, indices, rng, n_caps):
+    """Index one chunk of PAIRED vantages: every position in `indices` in
+    every capture, with one shared heading per position. No pixels are cut
+    here — gpu_crops() does that per mini-batch. Returns CPU tensors
+    (cx [N*K], cy [N*K], angle_deg [N*K], cell_idx [N*K], pos [N*K,2],
+    cap_idx [N*K]), views ordered position-major as before.
 
     `cell_idx` is the containing cell, kept only for the top1 log line — the
     loss targets are built from `pos`, the continuous raster-pixel position.
     """
     gw, _ = grid_dims(meta)
-    xs, cells, pos, caps = [], [], [], []
-    for i in indices:
-        c = crops[i]
-        cx, cy = c["cx"], c["cy"]
-        angle = float(rng.uniform(0, 360))  # heading augmentation, shared
-        cell = (cy // CELL_PX) * gw + (cx // CELL_PX)
-        for k, img in enumerate(imgs):
-            xs.append(extract_crop(img, cx, cy, angle))
-            cells.append(cell)
-            pos.append((float(cx), float(cy)))
-            caps.append(k)
-    x = torch.from_numpy(np.stack(xs)).permute(0, 3, 1, 2).contiguous()
-    return (x, torch.tensor(cells, dtype=torch.int64),
-            torch.tensor(pos, dtype=torch.float32),
-            torch.tensor(caps, dtype=torch.int64))
+    xy = crop_xy[torch.as_tensor(indices, dtype=torch.int64)]          # [N,2]
+    ang = torch.as_tensor(rng.uniform(0, 360, size=len(indices)),
+                          dtype=torch.float32)                         # shared heading
+    rep = lambda t: t.repeat_interleave(n_caps, dim=0)
+    cx, cy = rep(xy[:, 0]), rep(xy[:, 1])
+    cells = (cy // CELL_PX) * gw + (cx // CELL_PX)
+    pos = torch.stack([cx, cy], dim=1).float()
+    caps = torch.arange(n_caps, dtype=torch.int64).repeat(len(indices))
+    return cx, cy, rep(ang), cells, pos, caps
+
+
+def gpu_crops(scene_u8, cap, cx, cy, angle_deg, size=CROP_PX):
+    """Cut and rotate a batch of training views on the device. Same geometry
+    as pipeline.dataset.extract_crop (PIL rotate, bilinear, about the crop
+    centre), checked to match it within uint8 rounding at the edges.
+
+    scene_u8: [K,3,H,W] uint8 (all training captures, resident on device).
+    cap, cx, cy: int64 [B]; angle_deg: float [B]; all on the same device.
+    Returns float [B,3,size,size] in [0,1].
+    """
+    dev = scene_u8.device
+    hw = WINDOW_PX // 2 + 1                  # extract_crop's half window
+    ar = torch.arange(2 * hw, device=dev)
+    ys = (cy - hw).unsqueeze(1) + ar         # [B,2hw]
+    xs = (cx - hw).unsqueeze(1) + ar
+    win = scene_u8[cap[:, None, None], :, ys[:, :, None], xs[:, None, :]]   # [B,2hw,2hw,3]
+    win = win.permute(0, 3, 1, 2).float()
+    # PIL: input = R(-angle) applied to (output - centre) + centre, in pixel-
+    # corner coordinates; the window centre is hw and the crop is centred on it.
+    th = torch.deg2rad(angle_deg.float())
+    c, s = torch.cos(th), torch.sin(th)
+    d = torch.arange(size, device=dev, dtype=torch.float32) + 0.5 - size / 2
+    dx, dy = d.view(1, 1, size), d.view(1, size, 1)
+    px = hw + c.view(-1, 1, 1) * dx - s.view(-1, 1, 1) * dy
+    py = hw + s.view(-1, 1, 1) * dx + c.view(-1, 1, 1) * dy
+    grid = torch.stack([px, py], dim=-1) * (2.0 / (2 * hw)) - 1.0           # [B,S,S,2]
+    out = F.grid_sample(win, grid, mode="bilinear", padding_mode="zeros",
+                        align_corners=False)
+    return out.div_(255.0)
 
 
 def make_soft_targets(pos, meta, n_cells, gw, gh, smoothing=0.05):
@@ -190,6 +225,59 @@ def residual_offset_target(model, logits, pos, meta):
         return torch.stack([ru, rv], dim=1)
 
 
+def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
+              pos_per_chunk, gw, gh, max_chunks=None):
+    """One full pass over the whole lattice x every capture, shuffled, fresh
+    headings; each chunk holds its positions in ALL captures. Running stats
+    stay on the device and are read once at the end, so the CPU never waits
+    for the GPU mid-epoch. `max_chunks` is for timing runs only."""
+    model.train()
+    loss_sum = torch.zeros((), device=device)
+    correct = torch.zeros((), dtype=torch.int64, device=device)
+    conf_sum = torch.zeros((), device=device)
+    cap_correct = torch.zeros(n_caps, dtype=torch.int64, device=device)
+    cap_seen = torch.zeros(n_caps, dtype=torch.int64, device=device)
+    seen = 0
+    order = rng.permutation(len(crop_xy))
+    for ci, start in enumerate(range(0, len(order), pos_per_chunk)):
+        if max_chunks is not None and ci >= max_chunks:
+            break
+        views = chunk_views(meta, crop_xy, order[start:start + pos_per_chunk],
+                            rng, n_caps)
+        cx, cy, ang, cell_idx, pos, cap_idx = (t.to(device) for t in views)
+        n = len(cx)
+        perm = torch.randperm(n).to(device)
+        for i in range(0, n, BATCH_SIZE):
+            idx = perm[i:i + BATCH_SIZE]
+            B = len(idx)
+            cap_b = cap_idx[idx]
+            xb = augment_views(gpu_crops(scene, cap_b, cx[idx], cy[idx], ang[idx]))
+            cb, pb = cell_idx[idx], pos[idx]
+            logits, off_pred = model.training_outputs(xb)
+            soft_t = make_soft_targets(pb, meta, model.n_cells, gw, gh)
+            off_t = residual_offset_target(model, logits, pb, meta)
+            loss = loss_fn(logits, off_pred, soft_t, off_t)
+            opt.zero_grad(); loss.backward(); opt.step()
+            with torch.no_grad():
+                loss_sum += loss.detach() * B
+                # top1 is measured on AUGMENTED views, so it reads lower
+                # than experiment 2's 0.79 by design; judge by eval.
+                # top1 is vs. the CONTAINING cell, so it now reads lower
+                # than exp 4's 0.83 BY DESIGN: border views are supposed
+                # to split mass across the tent's cells. Judge
+                # convergence by loss and by eval, not by this.
+                hit = (logits.argmax(dim=1) == cb).long()
+                correct += hit.sum()
+                cap_correct.scatter_add_(0, cap_b, hit)
+                cap_seen.scatter_add_(0, cap_b, torch.ones_like(cap_b))
+                conf_sum += F.softmax(logits, dim=1).max(dim=1).values.sum()
+                seen += B
+    return {"loss_sum": float(loss_sum), "correct": int(correct),
+            "conf_sum": float(conf_sum), "seen": seen,
+            "cap_correct": cap_correct.cpu().tolist(),
+            "cap_seen": cap_seen.cpu().tolist()}
+
+
 def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                max_crops_per_bucket: int, seed: int) -> dict:
     torch.manual_seed(seed)
@@ -208,53 +296,24 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                                                        eta_min=1e-4)
     print(f"[{area}] {len(crops)} lattice positions, {model.n_cells} cells, "
           f"device={device}")
+    # All training captures live on the device for the whole run (uint8,
+    # ~0.43 GB for Berlin); views are cut from them per mini-batch.
+    scene = torch.from_numpy(np.stack(imgs)).permute(0, 3, 1, 2).contiguous().to(device)
+    del imgs
+    crop_xy = torch.tensor([(c["cx"], c["cy"]) for c in crops], dtype=torch.int64)
     final_top1 = 0.0
     final_top1_by_cap = {nm: 0.0 for nm in names}
     for epoch in range(epochs):
-        model.train()
-        loss_sum, correct, conf_sum, seen = 0.0, 0, 0.0, 0
-        cap_correct = torch.zeros(n_caps, dtype=torch.int64)
-        cap_seen = torch.zeros(n_caps, dtype=torch.int64)
-        # One full pass over the whole lattice x every capture, shuffled, fresh
-        # rotations; each chunk holds its positions in ALL captures.
-        order = rng.permutation(len(crops))
-        for start in range(0, len(order), pos_per_chunk):
-            x_u8, cell_idx, pos, cap_idx = extract_chunk(
-                meta, imgs, crops, order[start:start + pos_per_chunk], rng)
-            n = len(x_u8)
-            perm = torch.randperm(n)
-            for i in range(0, n, BATCH_SIZE):
-                idx = perm[i:i + BATCH_SIZE]
-                xb = augment_views(x_u8[idx].to(device).float() / 255.0)
-                cb, pb = cell_idx[idx].to(device), pos[idx].to(device)
-                logits, off_pred = model.training_outputs(xb)
-                soft_t = make_soft_targets(pb, meta, model.n_cells, gw, gh)
-                off_t = residual_offset_target(model, logits, pb, meta)
-                loss = loss_fn(logits, off_pred, soft_t, off_t)
-                opt.zero_grad(); loss.backward(); opt.step()
-                with torch.no_grad():
-                    loss_sum += loss.item() * len(idx)
-                    # top1 is measured on AUGMENTED views, so it reads lower
-                    # than experiment 2's 0.79 by design; judge by eval.
-                    # top1 is vs. the CONTAINING cell, so it now reads lower
-                    # than exp 4's 0.83 BY DESIGN: border views are supposed
-                    # to split mass across the tent's cells. Judge
-                    # convergence by loss and by eval, not by this.
-                    hit = (logits.argmax(dim=1) == cb).cpu().long()
-                    correct += int(hit.sum())
-                    cb_caps = cap_idx[idx]
-                    cap_correct.scatter_add_(0, cb_caps, hit)
-                    cap_seen.scatter_add_(0, cb_caps, torch.ones_like(cb_caps))
-                    conf_sum += float(F.softmax(logits, dim=1).max(dim=1).values.sum())
-                    seen += len(idx)
-            del x_u8, cell_idx, pos, cap_idx
+        stats = run_epoch(model, opt, meta, scene, crop_xy, rng, device,
+                          n_caps, pos_per_chunk, gw, gh)
         sched.step()
-        final_top1 = correct / max(seen, 1)
+        seen = stats["seen"]
+        final_top1 = stats["correct"] / max(seen, 1)
         final_top1_by_cap = {
-            nm: round(int(cap_correct[k]) / max(int(cap_seen[k]), 1), 4)
+            nm: round(stats["cap_correct"][k] / max(stats["cap_seen"][k], 1), 4)
             for k, nm in enumerate(names)}
-        print(f"[{area}] epoch {epoch + 1}/{epochs} loss={loss_sum / max(seen, 1):.4f} "
-              f"top1={final_top1:.4f} mean_max_softmax={conf_sum / max(seen, 1):.4f} "
+        print(f"[{area}] epoch {epoch + 1}/{epochs} loss={stats['loss_sum'] / max(seen, 1):.4f} "
+              f"top1={final_top1:.4f} mean_max_softmax={stats['conf_sum'] / max(seen, 1):.4f} "
               f"views={seen} lr={sched.get_last_lr()[0]:.2e} "
               f"top1_by_capture={final_top1_by_cap}", flush=True)
 
@@ -264,14 +323,14 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     export_onnx(model.cpu(), str(onnx_path))
     return {
         "area": area,
-        "n_train_crops": epochs * len(crops) * len(imgs),
+        "n_train_crops": epochs * len(crops) * n_caps,
         "epochs": epochs,
         "device": device,
         "train_seconds": round(time.time() - t0, 1),
         "onnx_bytes": onnx_path.stat().st_size,
         "init": "from-scratch",  # §9: log init strategy per experiment
         "n_cells": model.n_cells,
-        "distinct_vantages_seen": epochs * len(crops) * len(imgs),
+        "distinct_vantages_seen": epochs * len(crops) * n_caps,
         "full_lattice_epochs": True,
         "final_train_top1": round(final_top1, 4),
         "chunk_size": CHUNK_SIZE,
