@@ -65,7 +65,14 @@ calibrations collapsed dark-bucket coverage and were correctly scored FAIL.
 ./autoresearch/loop.sh 12               # run until the DB holds 12 experiments
 SKIP_AGENT=1 ./autoresearch/loop.sh 1   # smoke-test the harness without an agent
 touch state/stop                        # graceful stop after the current experiment
+./autoresearch/dashboard.sh             # the loop's dashboard: current experiment, progress,
+                                        # recent results, activity; s = graceful stop, q = close
 ```
+
+The dashboard is read-only and can be opened and closed at any time from any
+terminal; it reads the files the loop writes (`state/phase.json`, the run
+directory's training log, `experiments.sqlite`) once a second. `--once`
+prints a single frame for checking the layout.
 
 Data for berlin is already fetched and relit; the other areas are only
 needed if you restore the full four-area scope:

@@ -245,6 +245,8 @@ all 81 development experiments rather than the current era's five.
 ```bash
 ./autoresearch/loop.sh 12        # runs until the DB holds 12 experiments
 touch state/stop                 # graceful stop after the current one
+./autoresearch/dashboard.sh      # terminal dashboard of the running loop (issue #2);
+                                 # read-only, s = graceful stop, q = close
 ```
 
 Training is **local on the M1**. Modal credits are exhausted; RunPod was
