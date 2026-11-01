@@ -41,6 +41,20 @@ mass-weighted block centroid plus the mean of the members' offsets. Member
 disagreement is epistemic uncertainty, the kind a never-seen photograph
 produces; a single model's softmax mass is not.
 
+NORMALISED-PROTOTYPE COSINE HEAD (capture-holdout era, experiment 11): each
+member's affine cell head (w_c . f + b_c) is replaced by GAP feature ->
+BatchNorm1d -> L2-normalise -> cosine against an L2-normalised, bias-free
+prototype matrix [n_cells x D]. Member.forward() returns those COSINES; the
+deployed logits are COS_SCALE * cos (no margin). In training only, loss_fn
+subtracts an additive margin COS_MARGIN from the target cells' cosine in
+proportion to the tent target (CosFace-style; full margin on the dominant
+cell, fractional on its tent neighbours). Why: an affine head over an
+unnormalised feature can raise its margin by growing feature and weight norms,
+so it may keep one direction per survey inside a wide cone for each tile. With
+norms fixed, the only way to lower the loss is angular, so every survey's
+picture of a tile must point at that tile's single prototype. The offset head
+still reads the raw GAP feature.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -57,6 +71,8 @@ import torch.nn.functional as F
 CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
 N_MEMBERS = 2  # independent committee members (no shared weights)
 MEMBER_CHANS = [3, 24, 48, 96, 112]  # per-member trunk widths (size gate)
+COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
+COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
 
 
 def grid_dims(meta: dict) -> tuple[int, int]:
@@ -65,8 +81,8 @@ def grid_dims(meta: dict) -> tuple[int, int]:
 
 
 class Member(nn.Module):
-    """One independent localizer: conv trunk -> GAP -> (C-way cell logits,
-    within-cell offset)."""
+    """One independent localizer: conv trunk -> GAP -> (C-way cell COSINES
+    against normalised prototypes, within-cell offset)."""
 
     def __init__(self, n_cells: int, chans=MEMBER_CHANS):
         super().__init__()
@@ -75,20 +91,31 @@ class Member(nn.Module):
             layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1),
                        nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
         self.features = nn.Sequential(*layers)
-        self.cls_head = nn.Linear(chans[-1], n_cells)
+        self.embed_bn = nn.BatchNorm1d(chans[-1])
+        self.prototypes = nn.Parameter(torch.empty(n_cells, chans[-1]))
+        nn.init.normal_(self.prototypes, std=0.01)
         self.off_head = nn.Linear(chans[-1], 2)
 
-    def forward(self, x):
+    def embed(self, x):
+        """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
+        feature [B, D]."""
         f = self.features(x).mean(dim=(2, 3))
+        e = F.normalize(self.embed_bn(f), dim=1)
+        return e, f
+
+    def forward(self, x):
+        e, f = self.embed(x)
+        cos = F.linear(e, F.normalize(self.prototypes, dim=1))  # [B, n_cells] in [-1, 1]
         # tanh*0.5 keeps offsets inside the cell, in (-0.5, 0.5) cell units.
-        return self.cls_head(f), torch.tanh(self.off_head(f)) * 0.5
+        return cos, torch.tanh(self.off_head(f)) * 0.5
 
 
 class CellLocNet(nn.Module):
     """Committee of N_MEMBERS independent Members.
 
     forward() is the DEPLOYED path and returns [B, 3] = (u, v, conf).
-    training_outputs() exposes each member's raw (logits, offset) for the loss.
+    training_outputs() exposes each member's raw (cosines, offset) for the loss;
+    logits are COS_SCALE * cosines.
     """
 
     def __init__(self, meta: dict):
@@ -125,7 +152,7 @@ class CellLocNet(nn.Module):
         return ((du <= 1.6 * self.scale_u) & (dv <= 1.6 * self.scale_v)).float()
 
     def training_outputs(self, x):
-        """List of N_MEMBERS (logits, offset) tuples, all on the same x."""
+        """List of N_MEMBERS (cosines, offset) tuples, all on the same x."""
         return [m(x) for m in self.members]
 
     def forward(self, x):
@@ -134,7 +161,7 @@ class CellLocNet(nn.Module):
         # confidence, so a fix is trusted only if every member independently
         # put its belief there. Fix = pbar's block centroid + mean offset.
         outs = self.training_outputs(x)
-        ps = [F.softmax(l, dim=1) for l, _ in outs]
+        ps = [F.softmax(COS_SCALE * c, dim=1) for c, _ in outs]  # no margin deployed
         pbar = torch.stack(ps, 0).mean(0)
         idx = pbar.argmax(dim=1)
         mask = self.block_mask(idx)
@@ -152,14 +179,22 @@ def build_model(meta: dict) -> nn.Module:
     return CellLocNet(meta)
 
 
-def loss_fn(logits: torch.Tensor, offset_pred: torch.Tensor,
+def loss_fn(cos: torch.Tensor, offset_pred: torch.Tensor,
             soft_target: torch.Tensor, offset_target: torch.Tensor) -> torch.Tensor:
-    """Soft cross-entropy against a bilinear tent distribution over cell
-    centres + smooth-L1 on a residual offset target. soft_target is a dense
-    [B, n_cells] distribution (already includes label smoothing);
-    offset_target is [B, 2] in (-0.5, 0.5) cell units, the residual the
-    pooled-centroid decode leaves. No confidence loss term, as before.
+    """Additive-margin soft cross-entropy against a bilinear tent distribution
+    over cell centres + smooth-L1 on a residual offset target.
+
+    cos is the member's [B, n_cells] cosine matrix (NOT logits). The training
+    logits are COS_SCALE * (cos - COS_MARGIN * t_hat), where t_hat is the tent
+    target rescaled so its dominant cell is 1.0 (tent neighbours fractional,
+    the label-smoothing floor ~0): the margin is applied in proportion to the
+    target and only in training. soft_target is a dense [B, n_cells]
+    distribution (already includes label smoothing); offset_target is [B, 2]
+    in (-0.5, 0.5) cell units, the residual the pooled-centroid decode leaves.
+    No confidence loss term, as before.
     """
+    t_hat = soft_target / soft_target.max(dim=1, keepdim=True).values.clamp_min(1e-9)
+    logits = COS_SCALE * (cos - COS_MARGIN * t_hat)
     ce = -(soft_target * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
     return ce + 1.0 * F.smooth_l1_loss(offset_pred, offset_target)
 

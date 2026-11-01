@@ -54,6 +54,18 @@ mechanism — disagreement between independently trained models is epistemic
 uncertainty, the confidence gate that survives a change of photograph.
 Per-member top1 and the member agreement rate are logged per epoch.
 
+COSINE HEAD (experiment 11): each member's forward() now returns COSINES
+against L2-normalised cell prototypes, not logits. The scaled, margin-free
+logits COS_SCALE * cos are what the residual offset target, top1, agreement
+and the committee belief statistics read; the training-only additive margin
+lives inside loss_fn, which takes the cosines. At the end of every epoch a
+clean SURVEY DIAGNOSTIC (survey_diag) cuts 512 fixed training-lattice
+positions at heading 0, no augmentation, from each TRAINING capture only, and
+logs per member: the same-place vs random-pair cosine of the normalised
+embedding across surveys, the within-place variance fraction (0 = one
+embedding per place regardless of survey), the fraction of positions on which
+the member names the same cell in every survey, and clean top1 per capture.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -67,8 +79,9 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from model.model import (CELL_PX, MEMBER_CHANS, N_MEMBERS, build_model,
-                         export_onnx, grid_dims, loss_fn)
+from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, MEMBER_CHANS,
+                         N_MEMBERS, build_model, export_onnx, grid_dims,
+                         loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
@@ -271,9 +284,10 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
             member_logits = []
             for member in model.members:
                 xb_k = augment_views(xb0)
-                logits_k, off_k = member(xb_k)
+                cos_k, off_k = member(xb_k)
+                logits_k = COS_SCALE * cos_k  # deployed, margin-free logits
                 off_t_k = residual_offset_target(model, logits_k, pb, meta)
-                loss = loss + loss_fn(logits_k, off_k, soft_t, off_t_k)
+                loss = loss + loss_fn(cos_k, off_k, soft_t, off_t_k)
                 member_logits.append(logits_k)
             opt.zero_grad(); loss.backward(); opt.step()
             with torch.no_grad():
@@ -304,6 +318,66 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
             "agree": int(agree)}
 
 
+def survey_diag(model, scene, crop_xy, meta, device, n_caps, diag_idx):
+    """Clean cross-survey diagnostic on fixed TRAINING-lattice positions
+    (diag_idx), heading 0, no augmentation, TRAINING captures only. Per
+    member: xs_cos_same / xs_cos_diff (mean over capture pairs of the cosine
+    of the normalised embedding for the same place / a fixed random pairing),
+    wpv (within-place variance fraction, exp 9 probe definition), xsurvey_agree
+    (same argmax cell in every capture), clean_top1 (per capture)."""
+    gw, _ = grid_dims(meta)
+    was_training = model.training
+    model.eval()
+    xy = crop_xy[torch.as_tensor(diag_idx, dtype=torch.int64)]
+    P = len(xy)
+    cells = ((xy[:, 1] // CELL_PX) * gw + xy[:, 0] // CELL_PX).numpy()
+    E = [[None] * n_caps for _ in range(N_MEMBERS)]   # [member][cap] -> [P, D]
+    A = [[None] * n_caps for _ in range(N_MEMBERS)]   # [member][cap] -> [P]
+    with torch.no_grad():
+        for k in range(n_caps):
+            es = [[] for _ in range(N_MEMBERS)]
+            args = [[] for _ in range(N_MEMBERS)]
+            for s in range(0, P, 64):
+                cx = xy[s:s + 64, 0].to(device)
+                cy = xy[s:s + 64, 1].to(device)
+                b = len(cx)
+                cap = torch.full((b,), k, dtype=torch.int64, device=device)
+                x = gpu_crops(scene, cap, cx, cy, torch.zeros(b, device=device))
+                for m, member in enumerate(model.members):
+                    e, _ = member.embed(x)
+                    cos = F.linear(e, F.normalize(member.prototypes, dim=1))
+                    es[m].append(e.cpu())
+                    args[m].append(cos.argmax(dim=1).cpu())
+            for m in range(N_MEMBERS):
+                E[m][k] = torch.cat(es[m]).numpy().astype(np.float64)
+                A[m][k] = torch.cat(args[m]).numpy()
+    if was_training:
+        model.train()
+    perm = np.random.default_rng(54321).permutation(P)
+    pairs = [(a, b) for a in range(n_caps) for b in range(a + 1, n_caps)]
+    out = {"xs_cos_same": [], "xs_cos_diff": [], "wpv": [],
+           "xsurvey_agree": [], "clean_top1": []}
+    for m in range(N_MEMBERS):
+        if pairs:
+            same = np.mean([np.mean(np.sum(E[m][a] * E[m][b], axis=1)) for a, b in pairs])
+            diff = np.mean([np.mean(np.sum(E[m][a] * E[m][b][perm], axis=1)) for a, b in pairs])
+        else:
+            same = diff = float("nan")
+        X = np.stack(E[m])                                   # [K, P, D]
+        flat = X.reshape(-1, X.shape[-1])
+        Z = (X - flat.mean(0)) / (flat.std(0) + 1e-6)
+        w = float(((Z - Z.mean(axis=0, keepdims=True)) ** 2).mean())
+        Am = np.stack(A[m])                                  # [K, P]
+        agree = float(np.mean(np.all(Am == Am[0:1], axis=0)))
+        top1 = [round(float(np.mean(Am[k] == cells)), 4) for k in range(n_caps)]
+        out["xs_cos_same"].append(round(float(same), 4))
+        out["xs_cos_diff"].append(round(float(diff), 4))
+        out["wpv"].append(round(w, 4))
+        out["xsurvey_agree"].append(round(agree, 4))
+        out["clean_top1"].append(top1)
+    return out
+
+
 def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                max_crops_per_bucket: int, seed: int) -> dict:
     torch.manual_seed(seed)
@@ -331,10 +405,15 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     final_top1_by_cap = {nm: 0.0 for nm in names}
     final_member_top1 = [0.0] * N_MEMBERS
     final_agree = 0.0
+    # Fixed for the run: clean survey-diagnostic positions (training lattice).
+    diag_idx = np.random.default_rng(12345).choice(
+        len(crop_xy), min(512, len(crop_xy)), replace=False)
+    diag = {}
     for epoch in range(epochs):
         stats = run_epoch(model, opt, meta, scene, crop_xy, rng, device,
                           n_caps, pos_per_chunk, gw, gh)
         sched.step()
+        diag = survey_diag(model, scene, crop_xy, meta, device, n_caps, diag_idx)
         seen = stats["seen"]
         final_top1 = stats["correct"] / max(seen, 1)
         final_top1_by_cap = {
@@ -346,7 +425,10 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
               f"top1={final_top1:.4f} mean_max_softmax={stats['conf_sum'] / max(seen, 1):.4f} "
               f"views={seen} lr={sched.get_last_lr()[0]:.2e} "
               f"top1_by_capture={final_top1_by_cap} "
-              f"member_top1={final_member_top1} agree_rate={final_agree:.4f}", flush=True)
+              f"member_top1={final_member_top1} agree_rate={final_agree:.4f} "
+              f"xs_cos_same={diag['xs_cos_same']} xs_cos_diff={diag['xs_cos_diff']} "
+              f"wpv={diag['wpv']} xsurvey_agree={diag['xsurvey_agree']} "
+              f"clean_top1={diag['clean_top1']}", flush=True)
 
     models_dir = out_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -368,7 +450,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "max_crops_per_bucket_arg": max_crops_per_bucket,
         "capture_sampling": ("paired-position interleave, shared heading per position, "
                              "per-view photometric+sharpness nuisance randomisation, "
-                             "two-member committee with independent augmentation draws per member"),
+                             "two-member committee with independent augmentation draws per member, "
+                             "normalised-prototype cosine head with additive margin"),
         "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,
@@ -377,6 +460,15 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "member_chans": MEMBER_CHANS,
         "final_member_top1": final_member_top1,
         "final_member_agree_rate": final_agree,
+        "head": (f"normalised-prototype cosine, BatchNorm1d embedding, s={COS_SCALE}, "
+                 f"train-only additive margin m={COS_MARGIN} on the tent target"),
+        "cos_scale": COS_SCALE,
+        "cos_margin": COS_MARGIN,
+        "final_xs_cos_same": diag.get("xs_cos_same"),
+        "final_xs_cos_diff": diag.get("xs_cos_diff"),
+        "final_wpv": diag.get("wpv"),
+        "final_xsurvey_agree": diag.get("xsurvey_agree"),
+        "final_clean_top1": diag.get("clean_top1"),
     }
 
 
