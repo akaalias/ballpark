@@ -8,7 +8,11 @@ train_info. It touches no git, so the old two-writer divergence cannot recur.
 
 Deploy:   modal deploy infra/modal_app.py
 Call:     via infra/modal_client.py (loop.sh's REMOTE_BACKEND=modal path)
-Data:     one-time  ->  modal volume put lowlight-data data/<area> <area>
+Data:     uploaded by infra/modal_client.py on first use: meta.json + the
+          role: train relight PNGs ONLY, into the `ballpark-train-data` volume
+          (the July `lowlight-data` volume predates the capture-holdout era and
+          is no longer used). train_area() refuses to run if any eval capture
+          is present in the volume (issue #3).
 """
 import modal
 
@@ -32,7 +36,7 @@ image = (
     .add_local_dir("model/pretrained", "/repo/model/pretrained")
 )
 
-data_vol = modal.Volume.from_name("lowlight-data", create_if_missing=True)
+data_vol = modal.Volume.from_name("ballpark-train-data", create_if_missing=True)
 cache_vol = modal.Volume.from_name("lowlight-render-cache", create_if_missing=True)
 
 
@@ -47,6 +51,16 @@ def train_area(area: str, model_py: str, train_py: str, epochs: int, crops: int)
     import os
     import pathlib
     import subprocess
+
+    import sys
+    sys.path.insert(0, "/repo")
+    from pipeline.common import buckets, load_meta
+    meta = load_meta(area, pathlib.Path("/repo/data"))
+    evals = list(buckets(meta, "eval"))
+    present = [str(p) for p in pathlib.Path(f"/repo/data/{area}").rglob("*")
+               if any(e in p.name for e in evals)]
+    if present:
+        return {"ok": False, "log": f"refusing to train: eval capture in the data volume: {present}"}
 
     m = pathlib.Path("/repo/model")
     m.mkdir(parents=True, exist_ok=True)
