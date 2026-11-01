@@ -1,0 +1,28 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0e7f4b220e65c9939 Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261024
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] launched i-01f785f6238609bcf g6.xlarge spot in eu-central-1c at ~$0.575/h
+[box] boot 2026-11-01T11:29:23Z
+[box] downloads done 2026-11-01T11:29:29Z
+NVIDIA L4, 23034 MiB, 595.112.07
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[box] torch 2.14.1+cu130 cuda True
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+[berlin] 72712 lattice positions, 2970 cells, device=cuda
+[berlin] epoch 1/8 loss=14.3601 top1=0.0177 mean_max_softmax=0.0091 views=218136 lr=9.66e-04 top1_by_capture={'bb_dop20': 0.0178, 'truedop_2022': 0.0161, 'truedop_2023': 0.0191} member_top1=[0.0159, 0.0153] agree_rate=0.2277
+[berlin] epoch 2/8 loss=12.2842 top1=0.0856 mean_max_softmax=0.0303 views=218136 lr=8.68e-04 top1_by_capture={'bb_dop20': 0.083, 'truedop_2022': 0.0807, 'truedop_2023': 0.0932} member_top1=[0.0745, 0.0731] agree_rate=0.2546
+[berlin] epoch 3/8 loss=11.0834 top1=0.1741 mean_max_softmax=0.0563 views=218136 lr=7.22e-04 top1_by_capture={'bb_dop20': 0.1631, 'truedop_2022': 0.1649, 'truedop_2023': 0.1945} member_top1=[0.1485, 0.1486] agree_rate=0.2684
+[berlin] epoch 4/8 loss=10.3231 top1=0.2483 mean_max_softmax=0.0797 views=218136 lr=5.50e-04 top1_by_capture={'bb_dop20': 0.2337, 'truedop_2022': 0.2314, 'truedop_2023': 0.2799} member_top1=[0.2131, 0.2122] agree_rate=0.2922
+[berlin] epoch 5/8 loss=9.8078 top1=0.3077 mean_max_softmax=0.0979 views=218136 lr=3.78e-04 top1_by_capture={'bb_dop20': 0.2852, 'truedop_2022': 0.2909, 'truedop_2023': 0.3471} member_top1=[0.2648, 0.2616] agree_rate=0.3153
+[berlin] epoch 6/8 loss=9.4554 top1=0.3531 mean_max_softmax=0.1103 views=218136 lr=2.32e-04 top1_by_capture={'bb_dop20': 0.3267, 'truedop_2022': 0.3341, 'truedop_2023': 0.3986} member_top1=[0.3025, 0.3007] agree_rate=0.3292
+[berlin] epoch 7/8 loss=9.2246 top1=0.3858 mean_max_softmax=0.1175 views=218136 lr=1.34e-04 top1_by_capture={'bb_dop20': 0.3561, 'truedop_2022': 0.3672, 'truedop_2023': 0.434} member_top1=[0.331, 0.3278] agree_rate=0.3415
+[berlin] epoch 8/8 loss=9.0787 top1=0.4067 mean_max_softmax=0.1215 views=218136 lr=1.00e-04 top1_by_capture={'bb_dop20': 0.3741, 'truedop_2022': 0.3877, 'truedop_2023': 0.4585} member_top1=[0.348, 0.3462] agree_rate=0.3490
+{"area": "berlin", "n_train_crops": 1745088, "epochs": 8, "device": "cuda", "train_seconds": 398.9, "onnx_bytes": 3942411, "init": "from-scratch", "n_cells": 2970, "distinct_vantages_seen": 1745088, "full_lattice_epochs": true, "final_train_top1": 0.4067, "chunk_size": 4096, "max_crops_per_bucket_arg": 6000, "capture_sampling": "paired-position interleave, shared heading per position, per-view photometric+sharpness nuisance randomisation, two-member committee with independent augmentation draws per member", "augmentation": {"blur_p": 0.7, "blur_sigma_max": 1.5, "blur_taps": 7, "exposure": [0.75, 1.3], "channel_gain": [0.85, 1.15], "contrast": [0.6, 1.4], "brightness": [-0.12, 0.12], "gamma": [0.7, 1.4], "saturation": [0.5, 1.5], "noise_sigma_max": 0.03}, "captures": ["bb_dop20", "truedop_2022", "truedop_2023"], "positions_per_chunk": 1365, "final_train_top1_by_capture": {"bb_dop20": 0.3741, "truedop_2022": 0.3877, "truedop_2023": 0.4585}, "n_members": 2, "member_chans": [3, 24, 48, 96, 112], "final_member_top1": [0.348, 0.3462], "final_member_agree_rate": 0.349}
+[box] train exit=0 seconds=408
+[box] result uploaded
+[aws] machine i-01f785f6238609bcf terminated after 16.0 min (spot, ~$0.15)
+[aws] done
