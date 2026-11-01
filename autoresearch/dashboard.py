@@ -268,7 +268,7 @@ def recent(n=8):
         return [], {}
     era = {}
     if allrows:
-        scored = [(r[1], r[0]) for r in allrows if r[1] is not None and r[1] < 1e17]
+        scored = [(r[1], r[0]) for r in allrows if r[1] is not None and r[1] < 1e8]   # FAIL_SCORE is 1e9
         era["n"] = len(allrows)
         era["kept"] = sum(1 for r in allrows if r[2])
         era["baseline"] = scored[0] if scored else None
