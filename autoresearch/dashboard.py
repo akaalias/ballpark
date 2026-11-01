@@ -529,7 +529,7 @@ def experiment_panel(tick, est):
             lines.append(row("cpu", (f"training on the M1 (mps), {cpu / 100:.1f} cores busy", OK) if nproc
                              else ("no training process found: check the run", BAD)))
     elif ph in ("design", "implement"):
-        agent = {"design": "Fable 5.1", "implement": "Opus 5.5"}[ph]
+        agent = {"design": "Opus 5.5", "implement": "Opus 5.5"}[ph]
         lines.append(row("agent", (f"{agent} at work", OK)))
     lines.append(row("load", (f"{load:.1f} load average", "default")))
     if tp and tp["last"]:

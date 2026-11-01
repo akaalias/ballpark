@@ -149,9 +149,17 @@ detour branch on the evolution graph, and the git tag
 **`prignitz-detour-record`** (= old `463eeb2`), which holds the three run
 directories, exported models and agent transcripts. Do not delete that tag.
 
-### OPEN FINDING: the size gate measures the wrong artifact
+### RESOLVED 2026-11-01 (issue #8): the size gate measured the wrong artifact
 
-Found during the detour, independent of it, and **still open**.
+**Now `MODEL_MAX_BYTES = 32 MiB` fp32 ONNX ≈ 8 MiB int8 on the P4** — half the
+16 MB flash of current P4 boards (Espressif Function-EV, Waveshare, Olimex:
+16 MB flash + 32 MB PSRAM). It still weighs the fp32 file; the derivation is
+in `score.py`. It bound for the first time on capture-holdout exp 12 (4.35 MB
+fp32, pretrained MobileNetV3 trunk), which re-scored at **0.560** — the era's
+breakthrough — once the gate was derived. No archived experiment had ever
+failed on size, so the history did not move. Latency (250 ms host proxy)
+stays; on-chip latency and power are still unmeasured. The original finding,
+kept for the record:
 
 `MODEL_MAX_BYTES = 4 * 1024 * 1024` in `pipeline/score.py` was set in the
 **bootstrap commit** (`15b43a2`) and never revisited — `git log -S` returns
@@ -411,8 +419,11 @@ undoing the merge.
   (~15-20 min) and isn't load-bearing for the actual research question.
 - **§9 (from-scratch vs. pretrained, unified vs. dispatcher):** still the
   loop's call, unchanged.
-- **Model assignment:** design runs on **Fable** (since 2026-09-28
-  **Fable 5.1**, `claude-fable-5-1`), implementation on **Opus** (since
+- **Model assignment:** design runs on **Opus 5.5** (`claude-opus-5-5`)
+  **since 2026-11-01** (Alexis, issue #6): a same-prompt bake-off had Opus
+  produce the top blind-graded design in 3.9 min against Fable 5.1's 11-15
+  min for equal or lower grades. Before that design ran on **Fable** (since
+  2026-09-28 **Fable 5.1**, `claude-fable-5-1`). Implementation on **Opus** (since
   2026-09-28 **Opus 5.5**, `claude-opus-5-5`; both IDs verified headless
   that day) — a deliberate, branch-scoped reversal of the main branch's
   "Haiku 4.5 + Sonnet 5, never Opus" policy (see memory:
