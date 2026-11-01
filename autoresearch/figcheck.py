@@ -38,7 +38,10 @@ MIN_H, MAX_H = 240, 800   # canvas height range; width is fixed at 980
 # 3D slab shading uses '#000000xx' (black + inline alpha) for faint edge/face
 # tints instead of a separate opacity attribute — that's the canonical
 # reference implementation, not a violation, so '#000000' is allowed too.
-_PALETTE = {"#111111", "#6b6a60", "#9b998c", "#8c2f1f", "#8a6a1e", "#000000"}
+_PALETTE = {"#111111", "#6b6a60", "#9b998c", "#8c2f1f", "#8a6a1e", "#000000",
+            # the frozen camera glyph's own terrain tones, allowed so small
+            # thumbnails of the survey photographs can reuse them
+            "#f6f4ea", "#e6e3d4", "#d9d5c3", "#cfccbd"}
 _RED = "#8c2f1f"
 _FONT = "palatino,georgia,serif"
 # Calibrated against archive/arch_svg_reference.py's own stroke-widths, which
