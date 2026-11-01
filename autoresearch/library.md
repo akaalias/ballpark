@@ -30,7 +30,7 @@ Two flavors, different deployment economics:
 
 - **A. Explicit pre-model**: a small translator (tiny U-Net-ish) runs
   first; the localizer sees the cleaned image. It flies, so it spends the
-  4 MiB / 250 ms budget — keep it tiny.
+  size / 250 ms latency budget — keep it small.
 - **B. Training-only reconstruction auxiliary** (the budget-free version):
   keep one deployed model, but during training attach a decoder that must
   reconstruct the clean daytime render from the encoder's features, then
@@ -57,7 +57,7 @@ The conclusion is a *training-only discipline*, not an architecture: predict
 representations of related views, never pixels, against a target that does
 not move (stop-gradient or EMA), through a normalised latent that cannot
 collapse. Every expensive part (teacher, predictor, projector, VICReg terms)
-is scaffolding dropped before export, so the 4 MiB gate never sees it. The
+is scaffolding dropped before export, so the size gate never sees it. The
 harness holds the richest "related view" any of those papers had: three
 photographs of the same pixel-aligned ground with every crop's position,
 heading and survey known.

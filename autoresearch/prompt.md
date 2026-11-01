@@ -244,8 +244,10 @@ actually begun memorizing. If your design improves the geometric mean while
   coordinate parameterization, loss family, capacity allocation, decode
   resolution, or model topology is a strong one.
 - Do not run training yourself; the harness does that.
-- Stay within the deployment gates: exported ONNX ≤ 4 MiB per area, host
-  latency proxy ≤ 250 ms (see pipeline/score.py).
+- Stay within the deployment gates: exported fp32 ONNX ≤ 32 MiB per area
+  (~8 MiB once int8-quantised for the P4), host latency proxy ≤ 250 ms
+  (see pipeline/score.py). Size is no longer the tight constraint; latency
+  and power on the chip are, so a bigger model still has to earn its keep.
 - Keep one experiment tractable to train. This branch trains Berlin only, on
   a laptop GPU, and every epoch now covers THREE photographs (the training
   loop in `model/train.py` iterates `buckets(meta, "train")`, so an epoch is

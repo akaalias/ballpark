@@ -77,7 +77,13 @@ from pipeline.common import (CROP_PX, DATA_DIR, area_dir, buckets, load_areas,
                              load_meta)
 from pipeline.dataset import error_meters, extract_crop, list_crops
 
-MODEL_MAX_BYTES = 4 * 1024 * 1024   # ESP32-P4 flash/PSRAM envelope per model
+# Size gate, derived 2026-11-01 (issue #8). Weighs the fp32 ONNX, but the
+# budget is for the int8 model the P4 actually runs (esp-dl quantises; ~1/4
+# the size): 8 MiB int8 = half the 16 MB flash of current P4 boards (rest for
+# firmware/drivers/updates), comfortably inside their 32 MB PSRAM. 8 MiB int8
+# ~= 32 MiB fp32. Was 4 MiB fp32 from the bootstrap (15b43a2), never derived;
+# no archived experiment ever failed on it except capture-holdout exp 12.
+MODEL_MAX_BYTES = 32 * 1024 * 1024  # fp32 ONNX bytes (~8 MiB int8 on device)
 LATENCY_MAX_MS = 250.0              # single-thread host-CPU proxy budget
 CONF_THRESHOLD = 0.3
 MIN_USABLE_FIXES = 1                # a cell needs at least this many usable fixes, else FAIL

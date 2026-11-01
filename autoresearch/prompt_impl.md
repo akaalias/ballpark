@@ -28,7 +28,8 @@ keep/revert after you exit. Your only job is a faithful implementation.
    eval capture (`buckets(meta, "eval")`) must never be opened by anything
    under `model/`, in any form, or the experiment is void —
    the ONNX export contract in `model/model.py`'s docstring, exported ONNX
-   ≤ 4 MiB per area, host latency proxy ≤ 250 ms (see pipeline/score.py).
+   ≤ 32 MiB fp32 per area (~8 MiB int8 on the P4), host latency proxy
+   ≤ 250 ms (see pipeline/score.py).
 4. Syntax check when done:
    `.venv/bin/python -c "import model.train, model.model"`
 
