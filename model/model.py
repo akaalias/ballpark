@@ -93,6 +93,15 @@ interpolated between the training surveys while its spatial layout is kept.
 In eval mode (and so in the ONNX export and the survey diagnostic) it is the
 identity: the deployed graph is unchanged.
 
+NATIVE-SCALE INPUT (capture-holdout era, experiment 15): the 128 px frame is
+resized in-graph (bilinear, fixed output size) to INPUT_PX = 224, MobileNetV3's
+ImageNet training resolution, as the first operation of Member.embed(), before
+ImageNet normalisation. The pretrained filters therefore see structure at the
+scale their invariance was learned at (FixRes-style train/test resolution
+matching), and the two read levels become 48x14x14 (after block 8) and 96x7x7
+(after block 10). No new parameters; GAP keeps the place feature at 112-d; the
+external input contract stays 1x3x128x128.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -113,6 +122,7 @@ N_MEMBERS = 2  # independent committee members (no shared weights)
 EMBED_DIM = 112   # concatenated lift output / prototype / offset-head width (as exp 11)
 LIFT_DIM = EMBED_DIM // 2  # per-level lift width (56 + 56 = 112)
 TRUNK_BLOCKS = 11  # mobilenet_v3_small.features[:11] = stem + 10 IR blocks -> 96x4x4 at 128 px
+INPUT_PX = 224  # frame is bilinearly resized to this before the pretrained trunk (ImageNet training resolution)
 TRUNK_OUT_CH = 96  # deep level (after block 10)
 TRUNK_MID_BLOCKS = 9  # features[:9] -> 48x8x8 at 128 px (the exp-12 level)
 TRUNK_MID_CH = 48
@@ -174,7 +184,7 @@ class MixStyle(nn.Module):
 
 class Member(nn.Module):
     """One independent localizer: pretrained MobileNetV3-Small trunk read at
-    two depths (8x8 after block 8, 4x4 after block 10) -> one 1x1 lift per
+    two depths (14x14 after block 8, 7x7 after block 10, on the 224 px resized input) -> one 1x1 lift per
     level -> GAP -> concat -> (C-way cell COSINES against normalised
     prototypes, within-cell offset)."""
 
@@ -209,6 +219,9 @@ class Member(nn.Module):
     def embed(self, x):
         """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
         feature [B, D]. x is float [0,1]; ImageNet normalisation is in-graph."""
+        # Native-scale input: fixed-size bilinear upsample 128 -> INPUT_PX
+        # (plain ONNX Resize, no antialias), before ImageNet normalisation.
+        x = F.interpolate(x, size=(INPUT_PX, INPUT_PX), mode="bilinear", align_corners=False)
         xn = (x - self.in_mean) / self.in_std
         # Blocks run one by one so MixStyle (train-only; identity in eval) can
         # follow features[1]/[3]/[6]. h_mid is taken after block 8 as before.
@@ -219,8 +232,8 @@ class Member(nn.Module):
             if i in MIXSTYLE_AFTER:
                 h = self.mixstyle(h)
             if i == TRUNK_MID_BLOCKS - 1:
-                h_mid = h                               # [B, 48, 8, 8]
-        h_deep = h                                      # [B, 96, 4, 4]
+                h_mid = h                               # [B, 48, 14, 14]
+        h_deep = h                                      # [B, 96, 7, 7]
         f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
                        self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]
         e =F.normalize(self.embed_bn(f), dim=1)

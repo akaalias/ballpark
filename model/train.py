@@ -69,7 +69,7 @@ the member names the same cell in every survey, and clean top1 per capture.
 PRETRAINED TRUNK (experiment 12, deepened in experiment 13): each member's
 trunk is ImageNet-pretrained MobileNetV3-Small features[0..10] (model.model,
 BSD-3, loaded strict from the baked model/pretrained/mnv3s_features10.pt),
-read at two depths (48x8x8 and 96x4x4), each through its own trainable 1x1
+read at two depths (48x8x8 and 96x4x4 at 128 px; 14x14/7x7 since exp 15), each through its own trainable 1x1
 lift to 56, concatenated to 112.
 The optimiser has two parameter groups: the pretrained trunk blocks at
 TRUNK_LR_MULT (0.1) x the head LR, everything else at 1e-3, both decayed by
@@ -81,6 +81,12 @@ STYLE MIXING (experiment 14): model.model.MixStyle blends each training
 view's per-channel feature mean/std after trunk blocks 1/3/6 with a batch
 partner's (usually another survey's), p=0.5, Beta(0.1,0.1); it is identity in
 eval mode, so survey_diag and the export measure the mixing-free embedding.
+
+NATIVE-SCALE INPUT (experiment 15): crops are still cut and augmented at
+CROP_PX = 128; the bilinear resize to INPUT_PX = 224 (MobileNetV3's ImageNet
+resolution) lives inside model.model.Member.embed, so training views,
+survey_diag and the ONNX export all see it identically. The two read levels
+become 48x14x14 and 96x7x7.
 
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
@@ -96,13 +102,15 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM, LIFT_DIM,
+from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM, INPUT_PX, LIFT_DIM,
                          MIXSTYLE_AFTER, MIXSTYLE_ALPHA, MIXSTYLE_P, N_MEMBERS, PRETRAINED_TRUNK_PATH, TRUNK_BLOCKS,
                          TRUNK_LR_MULT, TRUNK_MID_CH, TRUNK_OUT_CH, build_model,
                          export_onnx, grid_dims, loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
+MID_HW = INPUT_PX // 16   # mid read level spatial size (14 at 224 px)
+DEEP_HW = INPUT_PX // 32  # deep read level spatial size (7 at 224 px)
 CHUNK_SIZE = 4096  # lattice positions extracted at a time (bounds memory)
 BATCH_SIZE = 64
 # Per-view photometric + sharpness nuisance ranges (training only).
@@ -410,8 +418,9 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     model = build_model(meta).to(device)
     print(f"[{area}] trunk: mobilenet_v3_small features[0..{TRUNK_BLOCKS - 1}] "
           f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
-          f"x {N_MEMBERS} members, lifts {TRUNK_MID_CH}->{LIFT_DIM} @8x8 + "
-          f"{TRUNK_OUT_CH}->{LIFT_DIM} @4x4 -> {EMBED_DIM}, "
+          f"x {N_MEMBERS} members, input {CROP_PX}->{INPUT_PX} px bilinear (in-graph), "
+          f"lifts {TRUNK_MID_CH}->{LIFT_DIM} @{MID_HW}x{MID_HW} + "
+          f"{TRUNK_OUT_CH}->{LIFT_DIM} @{DEEP_HW}x{DEEP_HW} -> {EMBED_DIM}, "
           f"trunk lr x{TRUNK_LR_MULT}, MixStyle after blocks {list(MIXSTYLE_AFTER)} "
           f"p={MIXSTYLE_P} alpha={MIXSTYLE_ALPHA} (train only)", flush=True)
     trunk_params = [p for m in model.members for p in m.trunk_parameters()]
@@ -489,7 +498,9 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "ImageNet-pretrained MobileNetV3-Small features[0..10] trunk per member (0.1x LR), "
                              "two-level 8x8 + 4x4 place feature, "
                              "MixStyle cross-survey feature-statistic mixing after trunk "
-                             "blocks 1/3/6 (train only)"),
+                             "blocks 1/3/6 (train only), "
+                             f"frame resized in-graph {CROP_PX}->{INPUT_PX} px before the trunk"),
+        "input_px": INPUT_PX,
         "mixstyle": {"after_blocks": list(MIXSTYLE_AFTER), "p": MIXSTYLE_P,
                      "alpha": MIXSTYLE_ALPHA},
         "augmentation": AUG,
@@ -498,7 +509,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "final_train_top1_by_capture": final_top1_by_cap,
         "n_members": N_MEMBERS,
         "trunk": (f"mobilenet_v3_small features[0..10], two-level 1x1 lift "
-                  f"{TRUNK_MID_CH}->{LIFT_DIM} (8x8) + {TRUNK_OUT_CH}->{LIFT_DIM} (4x4) "
+                  f"{TRUNK_MID_CH}->{LIFT_DIM} ({MID_HW}x{MID_HW}) + "
+                  f"{TRUNK_OUT_CH}->{LIFT_DIM} ({DEEP_HW}x{DEEP_HW}) "
                   f"-> {EMBED_DIM}"),
         "embed_dim": EMBED_DIM,
         "trunk_lr_mult": TRUNK_LR_MULT,
