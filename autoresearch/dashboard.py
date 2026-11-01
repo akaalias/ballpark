@@ -53,9 +53,11 @@ RUNS = ROOT / "runs"
 ACCENT, MUTED, OK, BAD = "#c0614a", "grey58", "green3", "red3"
 ACCENT_SOFT = "#e0a191"
 
-# The loop's phases in the order loop.sh reports them (figure only when
-# DRAW_FIGURES=1, which is the default again since 2026-10-31).
-PHASES = ["design", "figure", "implement", "train", "score", "publish"]
+# The loop's SEQUENTIAL phases. Since 2026-11-01 (loop.sh 2d3a1a2) the figure
+# agent runs in the background alongside implement/train, so it is shown as
+# its own status row, not a step; loop.sh reports phase "figure" only while
+# it waits for a late figure just before writing the record.
+PHASES = ["design", "implement", "train", "score", "publish"]
 # phase.json phase -> timings.json key(s) used for the estimate
 TIMING_KEYS = {"design": ("agent_design_s",), "implement": ("agent_impl_s",),
                "train": ("train_wall_s",), "score": ("score_s",),
@@ -155,11 +157,36 @@ def median_timings(k=5):
     ds = sorted(float(d["duration_ms"]) / 1000 for d in figs if d and d.get("duration_ms"))
     if ds:
         est["figure"] = ds[len(ds) // 2]
+    est.setdefault("figure", DEFAULTS["figure"])
     est["total"] = med.get("total_s", sum(est[p] for p in PHASES))
     return est
 
 
 EPOCH_RE = re.compile(r"epoch (\d+)/(\d+) loss=([\d.]+) top1=([\d.]+)")
+
+
+def figure_status(rd, ph):
+    """The background figure agent's state for this run, as one Text."""
+    if not rd:
+        return Text("—", style=MUTED)
+    fj = read_json(rd / "figure.json") or {}
+    if (fj.get("architecture_svg") or "").strip().startswith("<svg"):
+        return Text("✓ drawn (in the background)", style=OK)
+    if (rd / ".figure_missing").exists():
+        return Text("missing after 2 attempts — redrawn during the next experiment", style=BAD)
+    try:
+        busy = subprocess.run(["pgrep", "-f", "Draw the architecture figure"],
+                              capture_output=True, text=True).stdout.strip()
+    except OSError:
+        busy = ""
+    if busy:
+        log = rd / "figure_job.log"
+        since = mins(time.time() - (rd / "design_for_figure.json").stat().st_mtime) \
+            if (rd / "design_for_figure.json").exists() else "?"
+        return Text(f"drawing in the background (Sonnet), {since} so far", style=ACCENT)
+    if ph == "design":
+        return Text("starts in the background once the design is written", style=MUTED)
+    return Text("not started", style=MUTED)
 
 
 def train_progress(rd):
@@ -426,14 +453,14 @@ def experiment_panel(tick, est):
                       style="default" if design.get("title") else MUTED))
     # phase row
     steps = Text("phase    ", style=MUTED)
-    cur = PHASES.index(ph) if ph in PHASES else -1
+    # "figure" = waiting for the background figure after scoring, before publish
+    cur = PHASES.index(ph) if ph in PHASES else (PHASES.index("publish") if ph == "figure" else -1)
     ph_el = now - float(pj.get("phase_started") or now)
     for i, p in enumerate(PHASES):
         if i < cur:
-            if p == "figure" and rd and not (rd / "agent_figure.json").exists():
-                steps += Text(f"– {p}  ", style=MUTED)      # skipped (DRAW_FIGURES=0)
-            else:
-                steps += Text(f"✓ {p}  ", style=OK)
+            steps += Text(f"✓ {p}  ", style=OK)
+        elif i == cur and ph == "figure":
+            steps += Text(f"▶ waiting for figure {mins(ph_el)}  ", style=ACCENT + " bold") + Text(f"○ {p}  ", style=MUTED)
         elif i == cur:
             steps += Text(f"▶ {p}", style=ACCENT + " bold") + Text(f" {mins(ph_el)}  ", style=ACCENT)
         else:
@@ -443,6 +470,7 @@ def experiment_panel(tick, est):
     elif ph == "synced":
         steps += Text("✓ synced", style=OK)
     lines += [Text(""), steps]
+    lines.append(Text("figure   ", style=MUTED) + figure_status(rd, ph))
 
     row = lambda name, *parts: Text(f"{name[:8]:<9}", style=MUTED) + Text.assemble(*parts)
     el = now - float(pj.get("iter_started") or now)
@@ -500,8 +528,8 @@ def experiment_panel(tick, est):
         else:
             lines.append(row("cpu", (f"training on the M1 (mps), {cpu / 100:.1f} cores busy", OK) if nproc
                              else ("no training process found: check the run", BAD)))
-    elif ph in ("design", "implement", "figure"):
-        agent = {"design": "Fable 5.1", "implement": "Opus 5.5", "figure": "Sonnet"}[ph]
+    elif ph in ("design", "implement"):
+        agent = {"design": "Fable 5.1", "implement": "Opus 5.5"}[ph]
         lines.append(row("agent", (f"{agent} at work", OK)))
     lines.append(row("load", (f"{load:.1f} load average", "default")))
     if tp and tp["last"]:
@@ -551,7 +579,7 @@ def era_panel(est):
                       f"{(d.get('usable_fix_rate') or 0) * 100:.1f}%", f"{(d.get('false_fix_rate') or 0) * 100:.1f}%")
         lines.append(t)
     lines.append(Text(""))
-    lines.append(Text(f"phase estimates from recent runs: design {mins(est['design'])} · figure {mins(est['figure'])} · "
+    lines.append(Text(f"phase estimates from recent runs: design {mins(est['design'])} · figure {mins(est['figure'])} (background) · "
                       f"implement {mins(est['implement'])} · train {mins(est['train'])} · score {mins(est['score'])}", style=MUTED))
     return Panel(Group(*lines), title="this era", title_align="left", border_style="grey50")
 
