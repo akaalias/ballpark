@@ -102,6 +102,20 @@ matching), and the two read levels become 48x14x14 (after block 8) and 96x7x7
 (after block 10). No new parameters; GAP keeps the place feature at 112-d; the
 external input contract stays 1x3x128x128.
 
+MOBILENETV2 TRUNK (capture-holdout era, experiment 16): each member's
+MobileNetV3-Small trunk is replaced by torchvision's MobileNetV2 stem + all 17
+inverted-residual blocks (features[0..17], IMAGENET1K_V1, BSD-3; the final
+1280-channel 1x1 conv features[18] is excluded), loaded strict from the baked
+file model/pretrained/mnv2_features17.pt (verbatim torchvision tensors incl.
+BN running stats; nothing is downloaded). The two read levels keep their
+strides: after features[13] (96x14x14 at 224 px, stride 16) and after
+features[17] (320x7x7, stride 32), each through its own 1x1 lift to 56 ->
+GAP -> concat to the same 112-d feature. MixStyle moves to the
+stride-equivalent points of the new trunk: after features[3], [6], [10]
+(24x56x56, 32x28x28, 64x14x14). Head, committee, decode, losses and the
+128->224 in-graph resize are unchanged; the pretrained blocks are still
+fine-tuned at TRUNK_LR_MULT.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -115,24 +129,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import mobilenet_v3_small
+from torchvision.models import mobilenet_v2
 
 CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
 N_MEMBERS = 2  # independent committee members (no shared weights)
 EMBED_DIM = 112   # concatenated lift output / prototype / offset-head width (as exp 11)
 LIFT_DIM = EMBED_DIM // 2  # per-level lift width (56 + 56 = 112)
-TRUNK_BLOCKS = 11  # mobilenet_v3_small.features[:11] = stem + 10 IR blocks -> 96x4x4 at 128 px
+TRUNK_BLOCKS = 18  # mobilenet_v2.features[:18] = stem + 17 IR blocks -> 320x7x7 at 224 px
 INPUT_PX = 224  # frame is bilinearly resized to this before the pretrained trunk (ImageNet training resolution)
-TRUNK_OUT_CH = 96  # deep level (after block 10)
-TRUNK_MID_BLOCKS = 9  # features[:9] -> 48x8x8 at 128 px (the exp-12 level)
-TRUNK_MID_CH = 48
-PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv3s_features10.pt"
+TRUNK_OUT_CH = 320  # deep level (after features[17]): 320x7x7 at 224 px, stride 32
+TRUNK_MID_BLOCKS = 14  # features[:14] -> 96x14x14 at 224 px, stride 16
+TRUNK_MID_CH = 96
+PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv2_features17.pt"
 TRUNK_LR_MULT = 0.1  # pretrained blocks train at this multiple of the head LR
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
 COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
-MIXSTYLE_AFTER = (1, 3, 6)  # indices into trunk (features[i]) after which MixStyle runs
+MIXSTYLE_AFTER = (3, 6, 10)  # features[i] after which MixStyle runs: stride 4/8/16 (24x56x56, 32x28x28, 64x14x14)
 MIXSTYLE_P = 0.5      # per-batch, per-insertion-point probability of mixing
 MIXSTYLE_ALPHA = 0.1  # Beta(alpha, alpha) for the per-instance mixing weight
 MIXSTYLE_EPS = 1e-6
@@ -144,12 +158,17 @@ def grid_dims(meta: dict) -> tuple[int, int]:
 
 
 def build_pretrained_trunk() -> nn.Sequential:
-    """MobileNetV3-Small features[0..10] with ImageNet weights loaded STRICT
+    """MobileNetV2 features[0..17] with ImageNet weights loaded STRICT
     from the baked file (keys prefixed 'features.'). Call once per member so
     each owns an independent copy."""
-    trunk = mobilenet_v3_small(weights=None).features[:TRUNK_BLOCKS]
+    trunk = mobilenet_v2(weights=None).features[:TRUNK_BLOCKS]
     sd = torch.load(PRETRAINED_TRUNK_PATH, map_location="cpu", weights_only=True)
     trunk.load_state_dict({k[len("features."):]: v for k, v in sd.items()}, strict=True)
+    # Fail loudly on a wrong slice: the last block must emit TRUNK_OUT_CH.
+    last_ch = trunk[-1].conv[-1].num_features  # final BN of the last InvertedResidual
+    mid_ch = trunk[TRUNK_MID_BLOCKS - 1].conv[-1].num_features
+    assert last_ch == TRUNK_OUT_CH, f"trunk out channels {last_ch} != {TRUNK_OUT_CH}"
+    assert mid_ch == TRUNK_MID_CH, f"trunk mid channels {mid_ch} != {TRUNK_MID_CH}"
     return trunk
 
 
@@ -183,14 +202,15 @@ class MixStyle(nn.Module):
 
 
 class Member(nn.Module):
-    """One independent localizer: pretrained MobileNetV3-Small trunk read at
-    two depths (14x14 after block 8, 7x7 after block 10, on the 224 px resized input) -> one 1x1 lift per
+    """One independent localizer: pretrained MobileNetV2 trunk read at two
+    depths (96x14x14 after features[13], 320x7x7 after features[17], on the
+    224 px resized input) -> one 1x1 lift per
     level -> GAP -> concat -> (C-way cell COSINES against normalised
     prototypes, within-cell offset)."""
 
     def __init__(self, n_cells: int):
         super().__init__()
-        # One Sequential holding exactly the 11 pretrained blocks, so
+        # One Sequential holding exactly the 18 pretrained blocks, so
         # trunk_parameters()/head_parameters() split cleanly; embed() runs it
         # in two slices (slicing shares the same submodules).
         self.trunk = build_pretrained_trunk()
@@ -224,7 +244,7 @@ class Member(nn.Module):
         x = F.interpolate(x, size=(INPUT_PX, INPUT_PX), mode="bilinear", align_corners=False)
         xn = (x - self.in_mean) / self.in_std
         # Blocks run one by one so MixStyle (train-only; identity in eval) can
-        # follow features[1]/[3]/[6]. h_mid is taken after block 8 as before.
+        # follow features[3]/[6]/[10]. h_mid is taken after features[13].
         h = xn
         h_mid = None
         for i, blk in enumerate(self.trunk):
@@ -232,8 +252,8 @@ class Member(nn.Module):
             if i in MIXSTYLE_AFTER:
                 h = self.mixstyle(h)
             if i == TRUNK_MID_BLOCKS - 1:
-                h_mid = h                               # [B, 48, 14, 14]
-        h_deep = h                                      # [B, 96, 7, 7]
+                h_mid = h                               # [B, 96, 14, 14]
+        h_deep = h                                      # [B, 320, 7, 7]
         f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
                        self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]
         e =F.normalize(self.embed_bn(f), dim=1)

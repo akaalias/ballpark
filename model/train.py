@@ -88,6 +88,15 @@ resolution) lives inside model.model.Member.embed, so training views,
 survey_diag and the ONNX export all see it identically. The two read levels
 become 48x14x14 and 96x7x7.
 
+MOBILENETV2 TRUNK (experiment 16): each member's trunk is now
+ImageNet-pretrained MobileNetV2 features[0..17] (model.model, BSD-3, loaded
+strict from the baked model/pretrained/mnv2_features17.pt), read after
+features[13] (96x14x14) and features[17] (320x7x7), each lifted to 56 and
+concatenated to 112; MixStyle runs after blocks 3/6/10 (stride 4/8/16). On
+CUDA only, the member forward pass runs under bf16 autocast (no GradScaler)
+and its outputs are cast back to fp32 before targets/loss/statistics; on
+MPS/CPU nothing changes, and survey_diag and the export stay fp32.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -310,7 +319,10 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
             member_logits = []
             for member in model.members:
                 xb_k = augment_views(xb0)
-                cos_k, off_k = member(xb_k)
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16,
+                                    enabled=(device == "cuda")):
+                    cos_k, off_k = member(xb_k)
+                cos_k = cos_k.float(); off_k = off_k.float()
                 logits_k = COS_SCALE * cos_k  # deployed, margin-free logits
                 off_t_k = residual_offset_target(model, logits_k, pb, meta)
                 loss = loss + loss_fn(cos_k, off_k, soft_t, off_t_k)
@@ -416,13 +428,15 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     n_caps = len(imgs)
     pos_per_chunk = max(1, CHUNK_SIZE // n_caps)
     model = build_model(meta).to(device)
-    print(f"[{area}] trunk: mobilenet_v3_small features[0..{TRUNK_BLOCKS - 1}] "
+    amp_desc = "bf16 autocast on member forward (cuda only)" if device == "cuda" else "off"
+    print(f"[{area}] trunk: mobilenet_v2 features[0..{TRUNK_BLOCKS - 1}] "
           f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
           f"x {N_MEMBERS} members, input {CROP_PX}->{INPUT_PX} px bilinear (in-graph), "
           f"lifts {TRUNK_MID_CH}->{LIFT_DIM} @{MID_HW}x{MID_HW} + "
           f"{TRUNK_OUT_CH}->{LIFT_DIM} @{DEEP_HW}x{DEEP_HW} -> {EMBED_DIM}, "
           f"trunk lr x{TRUNK_LR_MULT}, MixStyle after blocks {list(MIXSTYLE_AFTER)} "
-          f"p={MIXSTYLE_P} alpha={MIXSTYLE_ALPHA} (train only)", flush=True)
+          f"p={MIXSTYLE_P} alpha={MIXSTYLE_ALPHA} (train only), "
+          f"amp={amp_desc}", flush=True)
     trunk_params = [p for m in model.members for p in m.trunk_parameters()]
     head_params = [p for m in model.members for p in m.head_parameters()]
     all_ids = [id(p) for p in model.parameters()]
@@ -483,7 +497,7 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "device": device,
         "train_seconds": round(time.time() - t0, 1),
         "onnx_bytes": onnx_path.stat().st_size,
-        "init": ("pretrained:mobilenet_v3_small IMAGENET1K_V1 features[0..10] "
+        "init": ("pretrained:mobilenet_v2 IMAGENET1K_V1 features[0..17] "
                  "(torchvision, BSD-3), fine-tuned at 0.1x LR"),  # §9
         "n_cells": model.n_cells,
         "distinct_vantages_seen": epochs * len(crops) * n_caps,
@@ -495,10 +509,10 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "per-view photometric+sharpness nuisance randomisation, "
                              "two-member committee with independent augmentation draws per member, "
                              "normalised-prototype cosine head with additive margin, "
-                             "ImageNet-pretrained MobileNetV3-Small features[0..10] trunk per member (0.1x LR), "
-                             "two-level 8x8 + 4x4 place feature, "
+                             "ImageNet-pretrained MobileNetV2 features[0..17] trunk per member (0.1x LR), "
+                             "two-level 96->56 (14x14) + 320->56 (7x7) -> 112 place feature, "
                              "MixStyle cross-survey feature-statistic mixing after trunk "
-                             "blocks 1/3/6 (train only), "
+                             "blocks 3/6/10 (train only), "
                              f"frame resized in-graph {CROP_PX}->{INPUT_PX} px before the trunk"),
         "input_px": INPUT_PX,
         "mixstyle": {"after_blocks": list(MIXSTYLE_AFTER), "p": MIXSTYLE_P,
@@ -508,13 +522,14 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
         "n_members": N_MEMBERS,
-        "trunk": (f"mobilenet_v3_small features[0..10], two-level 1x1 lift "
+        "trunk": (f"mobilenet_v2 features[0..17], two-level 1x1 lift "
                   f"{TRUNK_MID_CH}->{LIFT_DIM} ({MID_HW}x{MID_HW}) + "
                   f"{TRUNK_OUT_CH}->{LIFT_DIM} ({DEEP_HW}x{DEEP_HW}) "
                   f"-> {EMBED_DIM}"),
         "embed_dim": EMBED_DIM,
         "trunk_lr_mult": TRUNK_LR_MULT,
         "pretrained_file": PRETRAINED_TRUNK_PATH.name,
+        "amp": amp_desc,
         "final_member_top1": final_member_top1,
         "final_member_agree_rate": final_agree,
         "head": (f"normalised-prototype cosine, BatchNorm1d embedding, s={COS_SCALE}, "
