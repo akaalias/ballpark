@@ -21,6 +21,7 @@ How it works
   matter what, and this script terminates it on every exit path.
 
 Env (all optional): AWS_INSTANCE_TYPE (g6.xlarge), AWS_MAX_MINUTES (150),
+AWS_CODE_REF (pack code from this git commit instead of the working tree),
 AWS_ONDEMAND_FALLBACK (1), AWS_RETRIES (1, re-launch after a spot
 interruption), AWS_AMI (override the Deep Learning AMI lookup).
 Credentials come from .env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
@@ -111,6 +112,17 @@ def package_data(area):
 
 
 def package_code():
+    """model/ + pipeline/ + areas.yaml from the working tree, or from git
+    commit $AWS_CODE_REF when set (benchmarks while the loop is editing
+    model/)."""
+    ref = os.environ.get("AWS_CODE_REF")
+    if ref:
+        import subprocess
+        out = subprocess.run(["git", "-C", str(REPO), "archive", "--format=tar.gz", ref,
+                              "model", "pipeline", "areas.yaml"],
+                             capture_output=True, check=True).stdout
+        log(f"code from git {ref}")
+        return out
     buf = io.BytesIO()
     skip = lambda ti: None if ("__pycache__" in ti.name or ti.name.endswith(".pyc")) else ti
     with tarfile.open(fileobj=buf, mode="w:gz") as t:
