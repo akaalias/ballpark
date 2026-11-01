@@ -188,20 +188,43 @@ def train_progress(rd):
             "mtime": log.stat().st_mtime if log.exists() else 0}
 
 
+def aws_status(rd):
+    """One line on the remote machine, from the launcher's [aws]/[box] lines."""
+    log = rd / "train_berlin.log" if rd else None
+    if not log or not log.exists():
+        return "AWS: starting the launcher"
+    status = "AWS: preparing (packing code, checking links)"
+    for ln in log.read_text(errors="replace").splitlines():
+        m = re.search(r"\[aws\] launched (\S+) (\S+) (spot|on-demand) in (\S+)(?: at ~\$([\d.]+)/h)?", ln)
+        if m:
+            price = f", ~${float(m.group(5)):.2f}/h" if m.group(5) else ""
+            status = f"AWS: {m.group(2)} {m.group(3)} in {m.group(4)}{price} (booting)"
+        elif "no capacity" in ln and "launched" not in status:
+            status = "AWS: looking for a free machine (zone full, trying the next)"
+        elif "[box] downloads done" in ln or "[box] torch" in ln:
+            status = status.replace("(booting)", "(training)")
+        elif "[box] result uploaded" in ln:
+            status = status.replace("(training)", "(sending the model back)")
+    return status
+
+
 def training_processes():
     try:
         out = subprocess.run(["ps", "-eo", "pid,pcpu,command"], capture_output=True, text=True).stdout
     except OSError:
-        return 0, 0.0
+        return 0, 0.0, False
     n, cpu = 0, 0.0
+    remote = False
     for ln in out.splitlines():
+        if "infra/aws_train.py" in ln and "grep" not in ln:
+            remote = True
         if ("model.train" in ln or "model/train.py" in ln or "pipeline.score" in ln) and "grep" not in ln:
             n += 1
             try:
                 cpu += float(ln.split()[1])
             except (IndexError, ValueError):
                 pass
-    return n, cpu
+    return n, cpu, remote
 
 
 def recent(n=8):
@@ -443,14 +466,17 @@ def experiment_panel(tick, est):
     if left is not None:
         lines.append(row("left", (f"about {mins(left)} (estimate)", "default")))
         lines.append(row("ends", (f"about {day(now + left)}", "default")))
-    nproc, cpu = training_processes()
+    nproc, cpu, remote = training_processes()
     try:
         load = os.getloadavg()[0]
     except OSError:
         load = 0.0
     if ph == "train":
-        lines.append(row("cpu", (f"training on the M1 (mps), {cpu / 100:.1f} cores busy", OK) if nproc
-                         else ("no training process found: check the run", BAD)))
+        if remote:
+            lines.append(row("gpu", (aws_status(rd), OK)))
+        else:
+            lines.append(row("cpu", (f"training on the M1 (mps), {cpu / 100:.1f} cores busy", OK) if nproc
+                             else ("no training process found: check the run", BAD)))
     elif ph in ("design", "implement", "figure"):
         agent = {"design": "Fable 5.1", "implement": "Opus 5.5", "figure": "Sonnet"}[ph]
         lines.append(row("agent", (f"{agent} at work", OK)))
