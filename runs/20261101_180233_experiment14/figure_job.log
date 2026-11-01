@@ -1,0 +1,7 @@
+figure agent exited non-zero (turn limit or timeout) — using whatever figure it wrote
+figcheck FAIL: text overlap: '112-d embed, 2970 protos, s=30' vs 'belief field A'
+figcheck FAIL: line crosses label '11 MobileNetV3-S blocks, ImageNet in'
+figcheck FAIL: line crosses label 'trunk (pretrained)'
+figcheck FAIL: line crosses label 'cosine margin m=0.25 (CosFace) + fin'
+figcheck FAIL: label '112-d embed, 2970 protos, s=30' sits on a drawn shape at (437,452)
+WARNING: figure for runs/20261101_180233_experiment14 violates the anchor contract (cosmetic — kept anyway)
