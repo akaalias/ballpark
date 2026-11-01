@@ -1,0 +1,103 @@
+[
+  {
+    "area": "berlin",
+    "n_train_crops": 1745088,
+    "epochs": 8,
+    "device": "cuda",
+    "train_seconds": 401.4,
+    "onnx_bytes": 3949516,
+    "init": "from-scratch",
+    "n_cells": 2970,
+    "distinct_vantages_seen": 1745088,
+    "full_lattice_epochs": true,
+    "final_train_top1": 0.6509,
+    "chunk_size": 4096,
+    "max_crops_per_bucket_arg": 6000,
+    "capture_sampling": "paired-position interleave, shared heading per position, per-view photometric+sharpness nuisance randomisation, two-member committee with independent augmentation draws per member, normalised-prototype cosine head with additive margin",
+    "augmentation": {
+      "blur_p": 0.7,
+      "blur_sigma_max": 1.5,
+      "blur_taps": 7,
+      "exposure": [
+        0.75,
+        1.3
+      ],
+      "channel_gain": [
+        0.85,
+        1.15
+      ],
+      "contrast": [
+        0.6,
+        1.4
+      ],
+      "brightness": [
+        -0.12,
+        0.12
+      ],
+      "gamma": [
+        0.7,
+        1.4
+      ],
+      "saturation": [
+        0.5,
+        1.5
+      ],
+      "noise_sigma_max": 0.03
+    },
+    "captures": [
+      "bb_dop20",
+      "truedop_2022",
+      "truedop_2023"
+    ],
+    "positions_per_chunk": 1365,
+    "final_train_top1_by_capture": {
+      "bb_dop20": 0.6239,
+      "truedop_2022": 0.6441,
+      "truedop_2023": 0.6847
+    },
+    "n_members": 2,
+    "member_chans": [
+      3,
+      24,
+      48,
+      96,
+      112
+    ],
+    "final_member_top1": [
+      0.5806,
+      0.5803
+    ],
+    "final_member_agree_rate": 0.5381,
+    "head": "normalised-prototype cosine, BatchNorm1d embedding, s=30.0, train-only additive margin m=0.25 on the tent target",
+    "cos_scale": 30.0,
+    "cos_margin": 0.25,
+    "final_xs_cos_same": [
+      0.5998,
+      0.5959
+    ],
+    "final_xs_cos_diff": [
+      0.0113,
+      0.0135
+    ],
+    "final_wpv": [
+      0.2859,
+      0.287
+    ],
+    "final_xsurvey_agree": [
+      0.4648,
+      0.4336
+    ],
+    "final_clean_top1": [
+      [
+        0.5723,
+        0.6387,
+        0.668
+      ],
+      [
+        0.5605,
+        0.6172,
+        0.6641
+      ]
+    ]
+  }
+]
