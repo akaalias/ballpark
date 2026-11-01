@@ -1,0 +1,30 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0ae1b51cd26c93d9f Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261031
+[aws] launched i-0b71bb194b23c486c g6.xlarge spot in eu-central-1b at ~$0.543/h
+[box] boot 2026-11-01T20:55:18Z
+[box] downloads done 2026-11-01T20:55:22Z
+NVIDIA L4, 23034 MiB, 595.112.07
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[box] torch 2.14.1+cu130 cuda True
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+Traceback (most recent call last):
+  File "<frozen runpy>", line 203, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/opt/job/model/train.py", line 572, in <module>
+    main()
+    ~~~~^^
+  File "/opt/job/model/train.py", line 561, in main
+    info = train_area(args.area, out_dir, data_dir, args.epochs,
+                      args.max_crops_per_bucket, args.seed)
+  File "/opt/job/model/train.py", line 436, in train_area
+    f"{TRUNK_OUT_CH}->{LIFT_DIM} @{DEEP_HW}x{DEEP_HW}, ring-pooled x{N_RINGS} -> {EMBED_DIM}-d, "
+                                                                     ^^^^^^^
+NameError: name 'N_RINGS' is not defined
+[box] train exit=1 seconds=30
+[box] result uploaded
+[aws] machine i-0b71bb194b23c486c terminated after 3.7 min (spot, ~$0.03)
+[aws] FAILED (failed)

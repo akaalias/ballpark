@@ -125,3 +125,18 @@ wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/galle
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
+Uploading LFS objects: 100% (5/5), 31 MB | 1.5 MB/s, done.
+=== Experiment 17 (16/100 recorded)  run=20261101_204833_experiment17  parent=aba2697a2e4d4093683a1b6ebc258882024cbc88 ===
+agents finished (design: claude-opus-5-5 179s, impl: claude-opus-5-5 96s)
+--- train berlin:
+[aws] machine i-0b71bb194b23c486c terminated after 3.7 min (spot, ~$0.03)
+[aws] FAILED (failed)
+samples -> runs/20261101_204833_experiment17/samples
+REVERTED: mission score 1000000000.0 (best remains 0.155176)
+17
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (17 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (76 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (100 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
