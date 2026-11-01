@@ -94,3 +94,18 @@ experiments are already committed/logged). Safe to restart with:
   ./autoresearch/loop.sh
 [relaunch_watch 2026-11-01 19:32:17] restart requested; relaunching with target 100
 Working tree dirty — committing pending changes as a pre-loop checkpoint.
+=== Experiment 15 (14/100 recorded)  run=20261101_183217_experiment15  parent=98cf22d8820911348f6a6364ab8cd8b13ff3020d ===
+agents finished (design: claude-opus-5-5 133s, impl: claude-opus-5-5 97s)
+--- train berlin:
+[aws] machine i-0b50811b86e7452ad terminated after 35.4 min (on-demand, ~$0.59)
+[aws] done
+PRIMARY worst-case mission score: 0.2927 (0=every frame a usable fix, 1=abstains everywhere, 2=confidently wrong everywhere)
+samples -> runs/20261101_183217_experiment15/samples
+KEPT: mission score 0.292699 (improved from 0.395212)
+15
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (15 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (74 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (98 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
