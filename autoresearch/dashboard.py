@@ -374,6 +374,21 @@ class Activity:
 
 # ---- panels -----------------------------------------------------------------------------------------
 
+def compute_place():
+    """Where THIS experiment trains, read from its own training log: the loop's
+    REMOTE_TRAIN setting is not visible from outside the process."""
+    n = phase_state().get("iter")
+    rd = run_dir(n) if n else None
+    log = rd / "train_berlin.log" if rd else None
+    if not log or not log.exists():
+        return "decided at training"
+    try:
+        head = log.read_text(errors="replace")[:4000]
+    except OSError:
+        return "?"
+    return "AWS" if "[aws]" in head else "M1, local"
+
+
 def header():
     if STOP.exists():
         state = Text("stopping after this experiment", style=ACCENT)
@@ -384,7 +399,7 @@ def header():
     t = Table.grid(expand=True)
     t.add_column(); t.add_column(justify="right")
     t.add_row(Text(f"BALLPARK · {BRANCH} · autoresearch loop", style="bold"),
-              Text("compute: M1, local   ", style=MUTED) + Text("loop: ") + state
+              Text(f"compute: {compute_place()}   ", style=MUTED) + Text("loop: ") + state
               + Text(f"   {time.strftime('%H:%M')}", style=MUTED))
     return Panel(t, box=box.HEAVY, style="bold")
 
