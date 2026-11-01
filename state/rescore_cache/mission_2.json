@@ -1,0 +1,92 @@
+{
+  "kind": "development",
+  "areas": [
+    {
+      "area": "berlin",
+      "buckets": {
+        "truedop_2024": {
+          "n_eval": 400,
+          "coverage": 0.0025,
+          "usable_fix_rate": 0.0,
+          "false_fix_rate": 0.0025,
+          "abstain_rate": 0.9975,
+          "mission_score": 1.003313,
+          "geomean_error_m": 2743.89,
+          "median_error_m": 2743.89,
+          "mean_error_m": 2743.89,
+          "p10_error_m": 2743.89,
+          "p25_error_m": 2743.89,
+          "score": 1000000000.0,
+          "capture": "truedop_2024",
+          "lighting": "asis"
+        }
+      },
+      "gates": {
+        "model_bytes": 3053335,
+        "latency_ms_host_proxy": 1.57
+      },
+      "train_capture_diagnostics": {
+        "bb_dop20": {
+          "n_eval": 400,
+          "coverage": 0.0,
+          "usable_fix_rate": 0.0,
+          "false_fix_rate": 0.0,
+          "abstain_rate": 1.0,
+          "mission_score": 1.0,
+          "geomean_error_m": null,
+          "median_error_m": null,
+          "mean_error_m": null,
+          "p10_error_m": null,
+          "p25_error_m": null,
+          "capture": "bb_dop20",
+          "lighting": "asis",
+          "note": "training photograph, held-out viewpoints; logged only, never scored"
+        },
+        "truedop_2022": {
+          "n_eval": 400,
+          "coverage": 0.0075,
+          "usable_fix_rate": 0.0,
+          "false_fix_rate": 0.0075,
+          "abstain_rate": 0.9925,
+          "mission_score": 1.008278,
+          "geomean_error_m": 2156.47,
+          "median_error_m": 2612.5,
+          "mean_error_m": 2263.57,
+          "p10_error_m": 1613.72,
+          "p25_error_m": 1988.27,
+          "capture": "truedop_2022",
+          "lighting": "asis",
+          "note": "training photograph, held-out viewpoints; logged only, never scored"
+        },
+        "truedop_2023": {
+          "n_eval": 400,
+          "coverage": 0.0,
+          "usable_fix_rate": 0.0,
+          "false_fix_rate": 0.0,
+          "abstain_rate": 1.0,
+          "mission_score": 1.0,
+          "geomean_error_m": null,
+          "median_error_m": null,
+          "mean_error_m": null,
+          "p10_error_m": null,
+          "p25_error_m": null,
+          "capture": "truedop_2023",
+          "lighting": "asis",
+          "note": "training photograph, held-out viewpoints; logged only, never scored"
+        }
+      },
+      "region_holdout": {
+        "n_eval": 400,
+        "bucket": "truedop_2024",
+        "coverage": 0.0,
+        "usable_fix_rate": 0.0,
+        "false_fix_rate": 0.0,
+        "median_error_m": null,
+        "mean_error_m": null,
+        "note": "unseen-region diagnostic; logged only, never scored"
+      }
+    }
+  ],
+  "primary_mission_score": 1000000000.0,
+  "target_m": 100.0
+}

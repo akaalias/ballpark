@@ -1,0 +1,8 @@
+figure agent exited non-zero (turn limit or timeout) — using whatever figure it wrote
+figcheck FAIL: text overlap: 'averaged belief p̄' vs '+ mean of both members' offset nudge'
+figcheck FAIL: line crosses label 'both must independently back it, or '
+figcheck FAIL: line crosses label '2970 cells, scaled cosine × s=30'
+figcheck FAIL: line crosses label '1×1 lift'
+figcheck FAIL: line crosses label '48→112ch, BN+ReLU, trainable'
+figcheck FAIL: line crosses label 'member B trunk — pretrained'
+WARNING: figure for runs/20261101_170039_experiment12 violates the anchor contract (cosmetic — kept anyway)

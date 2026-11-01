@@ -1,0 +1,15 @@
+{
+  "kind": "development",
+  "areas": [
+    {
+      "area": "berlin",
+      "buckets": {},
+      "gates": {
+        "model_bytes": 4347119,
+        "failed": "model too large"
+      }
+    }
+  ],
+  "primary_mission_score": 1000000000.0,
+  "target_m": 100.0
+}
