@@ -29,8 +29,8 @@ not an arbitrary one-cell label), and the offset target is the residual the
 pooled centroid leaves rather than the position that centroid already encodes.
 
 TWO-MEMBER COMMITTEE (capture-holdout era, experiment 7): the network is
-N_MEMBERS = 2 fully independent Members (each its own conv trunk at
-MEMBER_CHANS + its own cell head + its own offset head; no shared weights),
+N_MEMBERS = 2 fully independent Members (each its own trunk + lift + its own
+cell head + its own offset head; no shared weights),
 differing only by random initialisation and by their training augmentation
 draws. Deployed decode: per-member softmax p_k; averaged belief
 pbar = mean_k p_k; the argmax cell of pbar and the same 3x3 block mask around
@@ -55,6 +55,19 @@ norms fixed, the only way to lower the loss is angular, so every survey's
 picture of a tile must point at that tile's single prototype. The offset head
 still reads the raw GAP feature.
 
+PRETRAINED TRUNK (capture-holdout era, experiment 12): each member's
+from-scratch conv trunk is replaced by torchvision's MobileNetV3-Small stem +
+first eight inverted-residual blocks (features[0..8], IMAGENET1K_V1, BSD-3;
+128x128 -> 48x8x8, the same 8x8 grid as before), loaded strict from the baked
+file model/pretrained/mnv3s_features8.pt (verbatim torchvision tensors, so
+nothing is downloaded at train or inference time), followed by a trainable
+1x1 lift 48 -> EMBED_DIM + BatchNorm + ReLU. Each member builds its own
+independent copy of the weights. ImageNet mean/std normalisation of the [0,1]
+input is applied inside Member.embed via registered buffers, so it bakes into
+the ONNX graph and the input contract is unchanged. train.py fine-tunes the
+pretrained blocks at TRUNK_LR_MULT (0.1) times the head learning rate, so the
+ImageNet invariances are adapted to Berlin rather than overwritten by it.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -62,15 +75,23 @@ ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
 """
 
 import math
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import mobilenet_v3_small
 
 CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
 N_MEMBERS = 2  # independent committee members (no shared weights)
-MEMBER_CHANS = [3, 24, 48, 96, 112]  # per-member trunk widths (size gate)
+EMBED_DIM = 112   # lift output / prototype / offset-head width (as exp 11)
+TRUNK_BLOCKS = 9  # mobilenet_v3_small.features[:9] = stem + 8 IR blocks -> 48x8x8 at 128 px
+TRUNK_OUT_CH = 48
+PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv3s_features8.pt"
+TRUNK_LR_MULT = 0.1  # pretrained blocks train at this multiple of the head LR
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
 COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
 
@@ -80,26 +101,46 @@ def grid_dims(meta: dict) -> tuple[int, int]:
     return (math.ceil(meta["width"] / CELL_PX), math.ceil(meta["height"] / CELL_PX))
 
 
-class Member(nn.Module):
-    """One independent localizer: conv trunk -> GAP -> (C-way cell COSINES
-    against normalised prototypes, within-cell offset)."""
+def build_pretrained_trunk() -> nn.Sequential:
+    """MobileNetV3-Small features[0..8] with ImageNet weights loaded STRICT
+    from the baked file (keys prefixed 'features.'). Call once per member so
+    each owns an independent copy."""
+    trunk = mobilenet_v3_small(weights=None).features[:TRUNK_BLOCKS]
+    sd = torch.load(PRETRAINED_TRUNK_PATH, map_location="cpu", weights_only=True)
+    trunk.load_state_dict({k[len("features."):]: v for k, v in sd.items()}, strict=True)
+    return trunk
 
-    def __init__(self, n_cells: int, chans=MEMBER_CHANS):
+
+class Member(nn.Module):
+    """One independent localizer: pretrained MobileNetV3-Small trunk -> 1x1
+    lift -> GAP -> (C-way cell COSINES against normalised prototypes,
+    within-cell offset)."""
+
+    def __init__(self, n_cells: int):
         super().__init__()
-        layers = []
-        for cin, cout in zip(chans, chans[1:]):
-            layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1),
-                       nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
-        self.features = nn.Sequential(*layers)
-        self.embed_bn = nn.BatchNorm1d(chans[-1])
-        self.prototypes = nn.Parameter(torch.empty(n_cells, chans[-1]))
+        self.trunk = build_pretrained_trunk()
+        self.lift = nn.Sequential(nn.Conv2d(TRUNK_OUT_CH, EMBED_DIM, 1, bias=False),
+                                  nn.BatchNorm2d(EMBED_DIM), nn.ReLU(inplace=True))
+        self.register_buffer("in_mean", torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1))
+        self.register_buffer("in_std", torch.tensor(IMAGENET_STD).view(1, 3, 1, 1))
+        self.embed_bn = nn.BatchNorm1d(EMBED_DIM)
+        self.prototypes = nn.Parameter(torch.empty(n_cells, EMBED_DIM))
         nn.init.normal_(self.prototypes, std=0.01)
-        self.off_head = nn.Linear(chans[-1], 2)
+        self.off_head = nn.Linear(EMBED_DIM, 2)
+
+    def trunk_parameters(self):
+        """Pretrained trunk parameters (fine-tuned at TRUNK_LR_MULT x LR)."""
+        return list(self.trunk.parameters())
+
+    def head_parameters(self):
+        """Everything not in self.trunk: lift, embed_bn, prototypes, off_head."""
+        trunk_ids = {id(p) for p in self.trunk.parameters()}
+        return [p for p in self.parameters() if id(p) not in trunk_ids]
 
     def embed(self, x):
         """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
-        feature [B, D]."""
-        f = self.features(x).mean(dim=(2, 3))
+        feature [B, D]. x is float [0,1]; ImageNet normalisation is in-graph."""
+        f = self.lift(self.trunk((x - self.in_mean) / self.in_std)).mean(dim=(2, 3))
         e = F.normalize(self.embed_bn(f), dim=1)
         return e, f
 

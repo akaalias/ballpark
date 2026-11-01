@@ -66,11 +66,21 @@ embedding across surveys, the within-place variance fraction (0 = one
 embedding per place regardless of survey), the fraction of positions on which
 the member names the same cell in every survey, and clean top1 per capture.
 
+PRETRAINED TRUNK (experiment 12): each member's trunk is now ImageNet-
+pretrained MobileNetV3-Small features[0..8] (model.model, BSD-3, loaded strict
+from the baked model/pretrained/mnv3s_features8.pt) + a trainable 1x1 lift.
+The optimiser has two parameter groups: the pretrained trunk blocks at
+TRUNK_LR_MULT (0.1) x the head LR, everything else at 1e-3, both decayed by
+one LambdaLR of the previous cosine shape (multiplier 1.0 -> 0.1 over the run:
+head 1e-3 -> 1e-4 as before, trunk 1e-4 -> 1e-5). Trunk BatchNorm layers stay
+in train mode so their running stats adapt to aerial imagery.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 
@@ -79,9 +89,10 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, MEMBER_CHANS,
-                         N_MEMBERS, build_model, export_onnx, grid_dims,
-                         loss_fn)
+from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM,
+                         N_MEMBERS, PRETRAINED_TRUNK_PATH, TRUNK_BLOCKS,
+                         TRUNK_LR_MULT, TRUNK_OUT_CH, build_model, export_onnx,
+                         grid_dims, loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
@@ -390,10 +401,22 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     n_caps = len(imgs)
     pos_per_chunk = max(1, CHUNK_SIZE // n_caps)
     model = build_model(meta).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-    # A 12x-longer schedule wants a decaying LR, not the constant 1e-3.
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs,
-                                                       eta_min=1e-4)
+    print(f"[{area}] trunk: mobilenet_v3_small features[0..{TRUNK_BLOCKS - 1}] "
+          f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
+          f"x {N_MEMBERS} members, lift {TRUNK_OUT_CH}->{EMBED_DIM}, "
+          f"trunk lr x{TRUNK_LR_MULT}", flush=True)
+    trunk_params = [p for m in model.members for p in m.trunk_parameters()]
+    head_params = [p for m in model.members for p in m.head_parameters()]
+    all_ids = [id(p) for p in model.parameters()]
+    grouped = [id(p) for p in trunk_params + head_params]
+    assert len(grouped) == len(all_ids) == len(set(grouped)) and set(grouped) == set(all_ids), \
+        "optimiser groups must cover every parameter exactly once"
+    opt = torch.optim.Adam([{"params": trunk_params, "lr": 1e-3 * TRUNK_LR_MULT},
+                            {"params": head_params, "lr": 1e-3}])
+    # Same cosine shape as before for both groups: multiplier 1.0 -> 0.1 over
+    # the run (head 1e-3 -> 1e-4, trunk 1e-4 -> 1e-5), stepped once per epoch.
+    sched = torch.optim.lr_scheduler.LambdaLR(
+        opt, lambda e: 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * e / epochs)))
     print(f"[{area}] {len(crops)} lattice positions, {model.n_cells} cells, "
           f"device={device}")
     # All training captures live on the device for the whole run (uint8,
@@ -423,7 +446,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         final_agree = round(stats["agree"] / max(seen, 1), 4)
         print(f"[{area}] epoch {epoch + 1}/{epochs} loss={stats['loss_sum'] / max(seen, 1):.4f} "
               f"top1={final_top1:.4f} mean_max_softmax={stats['conf_sum'] / max(seen, 1):.4f} "
-              f"views={seen} lr={sched.get_last_lr()[0]:.2e} "
+              f"views={seen} lr={opt.param_groups[1]['lr']:.2e} "
+              f"trunk_lr={opt.param_groups[0]['lr']:.2e} "
               f"top1_by_capture={final_top1_by_cap} "
               f"member_top1={final_member_top1} agree_rate={final_agree:.4f} "
               f"xs_cos_same={diag['xs_cos_same']} xs_cos_diff={diag['xs_cos_diff']} "
@@ -441,7 +465,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "device": device,
         "train_seconds": round(time.time() - t0, 1),
         "onnx_bytes": onnx_path.stat().st_size,
-        "init": "from-scratch",  # §9: log init strategy per experiment
+        "init": ("pretrained:mobilenet_v3_small IMAGENET1K_V1 features[0..8] "
+                 "(torchvision, BSD-3), fine-tuned at 0.1x LR"),  # §9
         "n_cells": model.n_cells,
         "distinct_vantages_seen": epochs * len(crops) * n_caps,
         "full_lattice_epochs": True,
@@ -451,13 +476,17 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "capture_sampling": ("paired-position interleave, shared heading per position, "
                              "per-view photometric+sharpness nuisance randomisation, "
                              "two-member committee with independent augmentation draws per member, "
-                             "normalised-prototype cosine head with additive margin"),
+                             "normalised-prototype cosine head with additive margin, "
+                             "ImageNet-pretrained MobileNetV3-Small trunk per member (0.1x LR)"),
         "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
         "n_members": N_MEMBERS,
-        "member_chans": MEMBER_CHANS,
+        "trunk": f"mobilenet_v3_small features[0..8] + 1x1 lift {TRUNK_OUT_CH}->{EMBED_DIM}",
+        "embed_dim": EMBED_DIM,
+        "trunk_lr_mult": TRUNK_LR_MULT,
+        "pretrained_file": PRETRAINED_TRUNK_PATH.name,
         "final_member_top1": final_member_top1,
         "final_member_agree_rate": final_agree,
         "head": (f"normalised-prototype cosine, BatchNorm1d embedding, s={COS_SCALE}, "
