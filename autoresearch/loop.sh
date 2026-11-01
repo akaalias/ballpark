@@ -31,6 +31,14 @@
 #          CLAUDE_BIN     (default "claude")
 #          SKIP_AGENT=1   (run train/score/log only — no code change; smoke test)
 set -euo pipefail
+# Keep the laptop awake for the whole run: the agents, scoring and the remote
+# launcher all run here even when training is remote, and idle sleep on
+# 2026-11-01 stretched an 18-min design to 2 h and hung a figure agent for
+# 53 min (issue #3). Re-exec once under caffeinate; lid-closed still sleeps.
+if [ -z "${LOOP_CAFFEINATED:-}" ] && command -v caffeinate >/dev/null 2>&1; then
+  export LOOP_CAFFEINATED=1
+  exec caffeinate -i -s "$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" "$@"
+fi
 cd "$(dirname "$0")/.."
 
 TARGET="${1:-100}"
@@ -155,6 +163,126 @@ snapshot_model_src() {
 # failed or invalid draw just leaves that record without a figure rather
 # than aborting the experiment.
 FIGURE_MODEL="${FIGURE_MODEL:-${IMPL_MODEL:-claude-sonnet-5}}"
+# --- Figures drawn in PARALLEL (2026-11-01, Alexis) --------------------------
+# Every experiment still gets its figure (hard rule, CLAUDE.md) — but the
+# figure agent no longer sits on the critical path (it was ~7-16 min of every
+# experiment). start_figure_bg launches it right after the design, while the
+# implementation agent and training run; finish_figure waits a bounded time
+# for it before the record is written; a figure that lands later merges
+# itself into experiment.json and the DB row. A hung agent is killed by a
+# wall-clock timeout and retried; a run whose attempts all fail is marked
+# .figure_missing and redrawn in the background during the next experiment.
+TIMEOUT_BIN="$(command -v timeout || command -v gtimeout || true)"
+FIG_PID=""
+
+# Merge $1/figure.json's SVG into $1/experiment.json and, if the record is
+# already logged, into its DB row. Idempotent; safe to call from both sides.
+merge_figure() {
+  $PY - "$1" <<'PYMERGEFIG' || true
+import json, sqlite3, sys
+from pathlib import Path
+rd = Path(sys.argv[1])
+try:
+    svg = (json.load(open(rd / "figure.json")).get("architecture_svg") or "").strip()
+except Exception:
+    raise SystemExit(0)
+if not svg.startswith("<svg"):
+    raise SystemExit(0)
+exp = rd / "experiment.json"
+if exp.exists():
+    d = json.load(open(exp))
+    if d.get("architecture_svg") != svg:
+        d["architecture_svg"] = svg
+        json.dump(d, open(exp, "w"), indent=2)
+con = sqlite3.connect("experiments.sqlite", timeout=30)
+con.execute("UPDATE experiments SET arch_svg=? WHERE artifacts_dir=? AND (arch_svg IS NULL OR arch_svg='')",
+            (svg, str(rd)))
+con.commit()
+(rd / ".figure_missing").unlink(missing_ok=True)
+PYMERGEFIG
+}
+
+# The figure job itself (runs in the background). $1 = run dir, $2 = design
+# file to draw from (a private copy, so the main loop can move pending freely).
+figure_job() {
+  local rundir="$1" design="$2" attempt
+  for attempt in 1 2; do
+    draw_figure_core "$rundir" "$design" "agent_figure.json" && break
+    echo "figure attempt $attempt for $rundir produced no figure"
+  done
+  if [ -s "$rundir/figure.json" ] && grep -q "<svg" "$rundir/figure.json"; then
+    $PY -m autoresearch.figcheck "$rundir/figure.json" \
+      || echo "WARNING: figure for $rundir violates the anchor contract (cosmetic — kept anyway)"
+    merge_figure "$rundir"
+  else
+    touch "$rundir/.figure_missing"
+    echo "FIGURE MISSING for $rundir after 2 attempts — redrawn during the next experiment"
+  fi
+}
+
+start_figure_bg() {
+  local rundir="$1" design="${2:-runs/pending_experiment.json}"
+  [ "${SKIP_AGENT:-0}" = "1" ] && return 0
+  [ "${DRAW_FIGURES:-1}" = "0" ] && return 0
+  [ -f "$design" ] || return 0
+  cp "$design" "$rundir/design_for_figure.json"
+  ( figure_job "$rundir" "$rundir/design_for_figure.json" ) >>"$rundir/figure_job.log" 2>&1 &
+  FIG_PID=$!
+}
+
+# Before a record is written: give the background figure up to FIGURE_WAIT_S
+# more seconds, then merge whatever exists. If it is still drawing, it keeps
+# going and merges itself into the record when done.
+finish_figure() {
+  local rundir="$1" waited=0
+  if [ -n "$FIG_PID" ]; then
+    while kill -0 "$FIG_PID" 2>/dev/null && [ "$waited" -lt "${FIGURE_WAIT_S:-900}" ]; do
+      [ "$waited" -eq 0 ] && echo "waiting for the figure agent (up to ${FIGURE_WAIT_S:-900}s)..."
+      sleep 10; waited=$(( waited + 10 ))
+    done
+    kill -0 "$FIG_PID" 2>/dev/null && echo "figure still drawing — it will merge into the record when done"
+  fi
+  merge_figure "$rundir"
+}
+
+# One earlier run whose figure is still missing gets redrawn in the background.
+backfill_missing_figure() {
+  local m rd
+  m="$(ls -1 runs/*/.figure_missing 2>/dev/null | head -1 || true)"
+  [ -n "$m" ] || return 0
+  rd="$(dirname "$m")"
+  [ -f "$rd/experiment.json" ] || return 0
+  echo "backfilling the missing figure of $rd in the background"
+  rm -f "$m"
+  cp "$rd/experiment.json" "$rd/design_for_figure.json"
+  ( figure_job "$rd" "$rd/design_for_figure.json" ) >>"$rd/figure_job.log" 2>&1 &
+}
+
+# Draw one figure into $1/figure.json from design file $2. No phase report,
+# no merge — callers decide. Returns non-zero when no valid SVG resulted.
+draw_figure_core() {
+  local rundir="$1" design="$2" agent_out="${3:-agent_figure.json}"
+  $PY -c "import json,sys; d=json.load(open('$design')); \
+    sys.exit(0 if d.get('architecture',{}).get('stages') else 1)" 2>/dev/null || return 0
+  local prompt="$rundir/prompt_figure.md" out="$rundir/figure.json"
+  rm -f "$out"
+  cat autoresearch/prompt_figure.md > "$prompt"
+  { echo
+    echo "## Paths for this run (resolve the placeholders referenced above)"
+    echo "- Read the experiment record from: \`$design\`"
+    echo "- Write ONLY this output file: \`$out\` — a single JSON object of the"
+    echo "  form {\"architecture_svg\": \"<svg …>\"} and nothing else."
+  } >> "$prompt"
+  ${TIMEOUT_BIN:+$TIMEOUT_BIN ${FIGURE_TIMEOUT_S:-1200}} "$CLAUDE_BIN" -p "$(cat "$prompt")" \
+    --model "$FIGURE_MODEL" \
+    --permission-mode acceptEdits \
+    --max-turns "${FIGURE_MAX_TURNS:-45}" \
+    --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(.venv/bin/python3:*)" \
+    --output-format json </dev/null >"$rundir/$agent_out" \
+    || echo "figure agent exited non-zero (turn limit or timeout) — using whatever figure it wrote"
+  [ -s "$out" ] && $PY -c "import json,sys; s=(json.load(open('$out')).get('architecture_svg') or '').strip(); sys.exit(0 if s.startswith('<svg') else 1)" 2>/dev/null
+}
+
 draw_figure() {
   local rundir="$1"
   local design="${2:-runs/pending_experiment.json}"
@@ -380,6 +508,7 @@ against your actual code diff, not just your own self-report.
 PIVOTNOTE
     mv "$RUN_DIR/prompt.md.tmp" "$RUN_DIR/prompt.md"
   fi
+  backfill_missing_figure
   report_phase design
   AGENT_MODEL_DESIGN=""; AGENT_MODEL_IMPL=""
   T_DESIGN=0; T_IMPL=0
@@ -407,7 +536,7 @@ ${AGENT_RETRY_SLEEP:-1800}s before next experiment"
     # The SVG is merged into runs/pending_experiment.json and rides along to
     # whichever exit path this experiment takes. With DRAW_FIGURES=kept the
     # figure is drawn later instead, only if the experiment becomes the best.
-    [ "${DRAW_FIGURES:-1}" = "1" ] && draw_figure "$RUN_DIR"
+    [ "${DRAW_FIGURES:-1}" = "1" ] && start_figure_bg "$RUN_DIR"
 
     # Early pivot-completeness check: if a pivot was demanded, verify the
     # DESIGN's own self-report already shows every non-frozen stage changed
@@ -436,6 +565,7 @@ PYCHECK
         echo "REJECTED (before implementation): a complete architecture rethink was required, but the design's own self-report leaves these stages unchanged: $UNCHANGED_STAGES — skipping implementation and training."
         mv runs/pending_experiment.json "$RUN_DIR/experiment.json"
         echo '{"kind":"development","areas":[],"primary_mission_score":1e9,"target_m":100.0}' > "$RUN_DIR/metrics.json"
+        finish_figure "$RUN_DIR"
         $PY -m autoresearch.db --metrics "$RUN_DIR/metrics.json" \
           --experiment-file "$RUN_DIR/experiment.json" \
           --result "rejected before implementation: a complete architecture rethink was required, but these stages were already self-reported unchanged in the design: $UNCHANGED_STAGES" \
@@ -542,6 +672,7 @@ PYSEED
     echo '{"kind":"development","areas":[],"primary_mission_score":1e9,"target_m":100.0}' > "$RUN_DIR/metrics.json"
     snapshot_model_src "$RUN_DIR"
     git checkout -- model/ 2>/dev/null || true
+    finish_figure "$RUN_DIR"
     $PY -m autoresearch.db --metrics "$RUN_DIR/metrics.json" \
       --experiment-file "$RUN_DIR/experiment.json" \
       --result "rejected before training: $REJECT_REASON" \
@@ -568,9 +699,10 @@ PYSEED
       # stays the sole writer). Same out-dir structure (models/*.onnx +
       # train_info.json) as local training, so the merge/score steps below are
       # unchanged. REMOTE_BACKEND: aws (default; per-run spot GPU, ships only
-      # the role: train captures) | modal | runpod. modal and runpod upload
-      # ALL of data/<area>, eval capture included — do not use them in the
-      # capture-holdout era until that is fixed (issue #3).
+      # the role: train captures) | modal (backup, within its $30 monthly
+      # credit; training-only data volume since 5a23f5e) | runpod (still
+      # uploads ALL of data/<area>, eval capture included — do not use it in
+      # the capture-holdout era; issue #3).
       if [ "${REMOTE_BACKEND:-aws}" = "aws" ]; then
         $PY infra/aws_train.py "$area" "$RUN_DIR/train_$area" "$EPOCHS" "$TRAIN_CROPS" \
           >"$RUN_DIR/train_$area.log" 2>&1 &
@@ -662,6 +794,8 @@ $(cat "$RUN_DIR/experiment.json")" || true
     CONCLUSION="REVERTED — mission score did not improve ($METRIC vs best $BEST); change discarded"
     echo "REVERTED: mission score $METRIC (best remains $BEST)"
   fi
+  report_phase figure
+  finish_figure "$RUN_DIR"
   DURATION_S=$(( $(date +%s) - EXPERIMENT_T0 ))
   $PY -m autoresearch.db --metrics "$RUN_DIR/metrics.json" \
     --experiment-file "$RUN_DIR/experiment.json" \
@@ -745,5 +879,8 @@ PYTIMES
   fi
   report_phase "synced"
 done
+if [ -n "$FIG_PID" ] && kill -0 "$FIG_PID" 2>/dev/null; then
+  echo "waiting for the last figure agent to finish..."; wait "$FIG_PID" 2>/dev/null || true
+fi
 report_phase idle
 echo "Loop finished. Best mission score: $(best_metric) — see gallery/index.html"
