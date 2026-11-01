@@ -1,0 +1,197 @@
+"""AGENT-EDITABLE — model architecture + deployment inference wrapper.
+
+The autoresearch loop may rewrite anything here (architecture, loss,
+confidence mechanism, unified vs. dispatcher+specialists, pretrained init
+per CLAUDE.md §3/§9) as long as:
+  - train.py exports one ONNX per area at <out>/models/<area>.onnx taking a
+    1x3x128x128 float32 input in [0,1] and returning [[u, v, conf]] with
+    u, v normalized map coords and conf in [0,1];
+  - the export passes pipeline/score.py's frozen deployment gates.
+
+Current: localization as MAP-CELL CLASSIFICATION, from-scratch init, decoded by
+LOCAL BELIEF POOLING. The map is cut into CELL_PX-square cells (Berlin:
+55x54 = 2970); a conv trunk feeds a C-way softmax over cells plus a within-cell
+offset head. The deployed decode pools belief over the 3x3 block of cells
+centred on the argmax cell: confidence is the softmax mass on that whole
+neighborhood, and the fix is the mass-weighted centroid of those cell centres,
+nudged by the offset. Eval views stand 11-17 m off-lattice, so a view near a
+cell border honestly splits its mass between adjacent cells — that is label
+ambiguity, not place ambiguity, and pooling makes confidence measure "does the
+model know WHERE it is" rather than "which arbitrary tile label applies".
+Belief scattered across DISTANT cells still falls below threshold, so genuine
+far-field ambiguity remains a safe abstention rather than a false fix. Cell
+size is chosen so the parameterization alone suffices: a 128 m cell's
+half-diagonal is 90.5 m, inside the 100 m usable radius, so naming the right
+cell is already a usable fix. The TRAINING TARGETS are decode-consistent: the
+cell target is a bilinear tent distribution over the <=4 nearest cell centres
+(so a border view is taught the honest split its pooled decode will produce,
+not an arbitrary one-cell label), and the offset target is the residual the
+pooled centroid leaves rather than the position that centroid already encodes.
+
+TWO-MEMBER COMMITTEE (capture-holdout era, experiment 7): the network is
+N_MEMBERS = 2 fully independent Members (each its own conv trunk at
+MEMBER_CHANS + its own cell head + its own offset head; no shared weights),
+differing only by random initialisation and by their training augmentation
+draws. Deployed decode: per-member softmax p_k; averaged belief
+pbar = mean_k p_k; the argmax cell of pbar and the same 3x3 block mask around
+it; conf = MIN over members of member k's own mass on that consensus block —
+each member must independently put its belief there, so a frame on which the
+two members name different blocks becomes an abstention. The fix is pbar's
+mass-weighted block centroid plus the mean of the members' offsets. Member
+disagreement is epistemic uncertainty, the kind a never-seen photograph
+produces; a single model's softmax mass is not.
+
+CROSS-SURVEY DINOv2 DISTILLATION (experiment 8): Member.feature_map() exposes
+each member's 8x8 conv map before global average pooling so train.py can
+distil a frozen DINOv2 ViT-S/14-reg teacher's patch tokens into it. The
+teacher and the per-member projectors live ONLY in train.py and never enter
+the export: forward() computes exactly what it did before, so the deployed
+graph is unchanged.
+
+The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
+offset -> conf) lives INSIDE the exported graph, because the scorer runs the
+ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
+[[u, v, conf]], u/v normalised map coords, conf in [0,1].
+"""
+
+import math
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
+N_MEMBERS = 2  # independent committee members (no shared weights)
+MEMBER_CHANS = [3, 24, 48, 96, 112]  # per-member trunk widths (size gate)
+
+
+def grid_dims(meta: dict) -> tuple[int, int]:
+    """(gw, gh): map-cell grid covering the area's raster."""
+    return (math.ceil(meta["width"] / CELL_PX), math.ceil(meta["height"] / CELL_PX))
+
+
+class Member(nn.Module):
+    """One independent localizer: conv trunk -> GAP -> (C-way cell logits,
+    within-cell offset)."""
+
+    def __init__(self, n_cells: int, chans=MEMBER_CHANS):
+        super().__init__()
+        layers = []
+        for cin, cout in zip(chans, chans[1:]):
+            layers += [nn.Conv2d(cin, cout, 3, stride=2, padding=1),
+                       nn.BatchNorm2d(cout), nn.ReLU(inplace=True)]
+        self.features = nn.Sequential(*layers)
+        self.cls_head = nn.Linear(chans[-1], n_cells)
+        self.off_head = nn.Linear(chans[-1], 2)
+
+    def feature_map(self, x):
+        """[B, chans[-1], 8, 8] conv map before global average pooling (read by
+        the training-only distillation loss)."""
+        return self.features(x)
+
+    def forward(self, x):
+        f = self.feature_map(x).mean(dim=(2, 3))
+        # tanh*0.5 keeps offsets inside the cell, in (-0.5, 0.5) cell units.
+        return self.cls_head(f), torch.tanh(self.off_head(f)) * 0.5
+
+
+class CellLocNet(nn.Module):
+    """Committee of N_MEMBERS independent Members.
+
+    forward() is the DEPLOYED path and returns [B, 3] = (u, v, conf).
+    training_outputs() exposes each member's raw (logits, offset) for the loss.
+    """
+
+    def __init__(self, meta: dict):
+        super().__init__()
+        gw, gh = grid_dims(meta)
+        self.gw, self.gh = gw, gh
+        self.n_cells = gw * gh
+        width, height = meta["width"], meta["height"]
+
+        # Sequential construction from the already-seeded torch RNG gives each
+        # member a different init; deliberately not re-seeded between members.
+        self.members = nn.ModuleList(Member(self.n_cells) for _ in range(N_MEMBERS))
+
+        # Cell-centre lookup tables, in normalized map coords. Registered as
+        # buffers so they bake into the ONNX graph as constants.
+        idx = np.arange(self.n_cells)
+        cell_u = ((idx % gw) + 0.5) * CELL_PX / width
+        cell_v = ((idx // gw) + 0.5) * CELL_PX / height
+        self.register_buffer("cell_u", torch.tensor(cell_u, dtype=torch.float32))
+        self.register_buffer("cell_v", torch.tensor(cell_v, dtype=torch.float32))
+        self.scale_u = CELL_PX / width
+        self.scale_v = CELL_PX / height
+
+    def block_mask(self, idx):
+        """Float [B, n_cells] mask of the 3x3 block of cells centred on each
+        argmax cell idx [B] (int64). 1.6 cell-pitches per axis (Chebyshev)
+        selects exactly the 3x3 block with float-safety margin — the next ring
+        sits at 2.0 pitches. Edge cells simply have fewer neighbours in range;
+        nothing is counted twice."""
+        win_u = self.cell_u.index_select(0, idx)
+        win_v = self.cell_v.index_select(0, idx)
+        du = (self.cell_u.unsqueeze(0) - win_u.unsqueeze(1)).abs()
+        dv = (self.cell_v.unsqueeze(0) - win_v.unsqueeze(1)).abs()
+        return ((du <= 1.6 * self.scale_u) & (dv <= 1.6 * self.scale_v)).float()
+
+    def training_outputs(self, x):
+        """List of N_MEMBERS (logits, offset) tuples, all on the same x."""
+        return [m(x) for m in self.members]
+
+    def forward(self, x):
+        # Committee decode: averaged belief names the consensus block; each
+        # member's OWN mass on that block is measured and the smaller is the
+        # confidence, so a fix is trusted only if every member independently
+        # put its belief there. Fix = pbar's block centroid + mean offset.
+        outs = self.training_outputs(x)
+        ps = [F.softmax(l, dim=1) for l, _ in outs]
+        pbar = torch.stack(ps, 0).mean(0)
+        idx = pbar.argmax(dim=1)
+        mask = self.block_mask(idx)
+        masses = torch.stack([(p * mask).sum(dim=1) for p in ps], 0)  # [N_MEMBERS, B]
+        conf = masses.min(dim=0).values  # min of softmax sub-sums: in [0,1]
+        q = pbar * mask
+        w = q / q.sum(dim=1, keepdim=True).clamp_min(1e-9)
+        off = torch.stack([o for _, o in outs], 0).mean(0)
+        u = (w * self.cell_u.unsqueeze(0)).sum(dim=1) + off[:, 0] * self.scale_u
+        v = (w * self.cell_v.unsqueeze(0)).sum(dim=1) + off[:, 1] * self.scale_v
+        return torch.stack([u.clamp(0.0, 1.0), v.clamp(0.0, 1.0), conf], dim=1)
+
+
+def build_model(meta: dict) -> nn.Module:
+    return CellLocNet(meta)
+
+
+def loss_fn(logits: torch.Tensor, offset_pred: torch.Tensor,
+            soft_target: torch.Tensor, offset_target: torch.Tensor) -> torch.Tensor:
+    """Soft cross-entropy against a bilinear tent distribution over cell
+    centres + smooth-L1 on a residual offset target. soft_target is a dense
+    [B, n_cells] distribution (already includes label smoothing);
+    offset_target is [B, 2] in (-0.5, 0.5) cell units, the residual the
+    pooled-centroid decode leaves. No confidence loss term, as before.
+    """
+    ce = -(soft_target * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+    return ce + 1.0 * F.smooth_l1_loss(offset_pred, offset_target)
+
+
+def export_onnx(model: nn.Module, path: str):
+    model.eval()
+    dummy = torch.zeros(1, 3, 128, 128)
+    torch.onnx.export(model, dummy, path, input_names=["frame"],
+                      output_names=["uvc"], opset_version=17, dynamo=False)
+
+
+def estimate_position(frame: np.ndarray, onnx_path: str, meta: dict):
+    """Deployment-shaped inference: frame (128x128x3 uint8) -> (lat, lon, conf).
+
+    On-device this maps to the P4 runtime; here it runs the same ONNX artifact.
+    """
+    import onnxruntime as ort
+    from pipeline.common import px_to_lonlat
+    sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+    x = frame.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+    u, v, conf = sess.run(None, {"frame": x})[0][0]
+    lon, lat = px_to_lonlat(meta, float(u) * meta["width"], float(v) * meta["height"])
+    return lat, lon, float(conf)
