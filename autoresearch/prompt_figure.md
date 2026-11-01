@@ -33,7 +33,8 @@ italic "frozen contract" tag: they are fixed by the harness and outside
 the design's search space. Everything between them is the design: draw
 it in ink, with red only on what THIS experiment changed (per
 `architecture.stages[].changed`). Style contract, so all experiments'
-figures read as one paper: viewBox width 980 (height ~300–360);
+figures read as one paper: viewBox width 980 (height as tall as the
+layout needs, 240–800; see the anchors below);
 transparent background; ink #111111, captions #6b6a60,
 annotations/arrows #9b998c; **#8c2f1f (red) reserved for exactly what
 this experiment changed**; training-only elements in #8a6a1e (or red if
@@ -45,8 +46,9 @@ frame to (lat, lon, confidence).
 **The camera frame is a fixed glyph — copy it verbatim.** It must look
 like an actual nadir frame of terrain (streets, building footprints),
 not abstract pixels, and be identical in every figure. Use exactly this
-snippet, substituting Y for the frame's top edge (pick Y so the frame
-centers on your inference lane; captions go under it as usual — note
+snippet, substituting Y for the frame's top edge (Y = H/2 − 38, so the
+frame is centred on the canvas — see the anchors below; captions go under
+it as usual — note
 128²×3 is the model input crop, ~1 m/px, not the sensor's native
 resolution):
 ```svg
@@ -73,14 +75,28 @@ figure without the `cam-terrain` group.) Draw the receptive-field square
 and kernel-projection lines on top of it as usual.
 
 **Anchor the frozen endpoints identically in every figure** so all
-experiments' figures line up when compared down the gallery page: the
-camera-frame square starts at x=26 (its captions centered on x=53), and
-the output is right-anchored — decode crosshair at x=812, the
-(lat, lon, confidence) text block text-anchor=start at x=828. Mark the
-anchors machine-checkably: the camera-frame rect carries
-`id='frozen-input'`, the output text block carries `id='frozen-output'`.
+experiments' figures line up when compared down the gallery page:
+
+- **Both endpoints sit on the canvas's horizontal centre line, y = H/2**,
+  where H is your viewBox height. The camera-frame square is centred on it
+  (top edge Y = H/2 − 38) and starts at x=26 (captions centred on x=53).
+  The output is right-anchored on the same line: decode crosshair at
+  (812, H/2), and the "(lat, lon, confidence)" text with
+  text-anchor=start at x=828, baseline y = H/2 + 5 (13 px type). Its small
+  "frozen contract" tag goes above it and "position fix + confidence"
+  below it.
+- Choose H first, then build around the centre line. A single inference
+  path runs along it. Two parallel members (a committee) go one above and
+  one below it, symmetrically, and rejoin on it before the output. Training
+  signals go in their own band at the bottom, under a "TRAINING SIGNALS —
+  NEVER FLY" heading with nothing else on that row.
+- Mark the anchors machine-checkably: the camera-frame rect carries
+  `id='frozen-input'`, the output text element carries
+  `id='frozen-output'`. figcheck enforces both positions.
+
 Lay the elements between them out on a running x-cursor with generous
-spacing so nothing overlaps.
+spacing so nothing overlaps. Every label, line and shape stays inside the
+canvas with a few px to spare — nothing may be cut off at any edge.
 
 **Readability contract** (figcheck verifies this geometrically): no
 text may overlap other text, and no line (arrows, converge fans,
@@ -92,7 +108,7 @@ sources (the actual dots or window cells, not generic positions);
 every element owns its caption — adjacent columns stagger their
 caption rows instead of colliding; prefer moving a label into empty
 horizontal space over stacking it against a neighbor. Width is fixed
-at 980, but **height is yours**: grow the viewBox (240–640) whenever
+at 980, but **height is yours**: grow the viewBox (240–800) whenever
 more vertical room makes the layout cleaner rather than cramming.
 
 **Save early, save often.** Write your first complete figure to the output
@@ -104,9 +120,18 @@ draft in a scratch file for 46 turns and left nothing). Keep any helper
 script or scratch file inside this run's directory (the folder of the
 output path), never at the top of `runs/`.
 
-**Before finishing, validate:** `.venv/bin/python -m autoresearch.figcheck
-<your output path>` — it checks the anchor contract; revise until it
-prints PASS. Consecutive conv layers must be tied by kernel-projection
+**Look at it, then validate.** Geometry checks cannot see a chaotic
+layout, so after every substantial revision render the SVG and look at the
+picture: extract the SVG from the JSON into a file in this run's directory,
+then `rsvg-convert -w 1600 -b white <that.svg> -o <that.png>` and Read the
+PNG. Check, in the image itself: no text touching other text, a line or a
+shape; no label cut off at an edge; dashed training leaders that run as
+clean L-routes to the thing they annotate and stop there; no line that
+goes nowhere; input and output level with each other on the centre line.
+Then run `.venv/bin/python -m autoresearch.figcheck <your output path>` —
+it checks the anchors, canvas bounds, centring, overlaps and well-formed
+XML (escape `&` in text as `&amp;`). Revise until the picture looks clean
+AND figcheck prints PASS. Consecutive conv layers must be tied by kernel-projection
 lines (small kernel square on one face, faint lines converging to a cell
 on the next) so the encoder reads as one computation, not boxes in a
 row. `archive/arch_svg_reference.py` is the concrete reference

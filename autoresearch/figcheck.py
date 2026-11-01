@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+MIN_H, MAX_H = 240, 800   # canvas height range; width is fixed at 980
 
 # The five-color style contract (prompt_figure.md). Hex values normalized
 # to lowercase before comparison. archive/arch_svg_reference.py's own pseudo-
@@ -205,6 +206,81 @@ def _inside(pt, box, pad=2.0):
             and box[1] - pad <= pt[1] <= box[3] + pad)
 
 
+def _shape_boxes(svg: str):
+    """Bounding boxes of drawn shapes a label must not sit on: rects,
+    circles, ellipses, polygons and closed paths. The frozen camera glyph
+    and full-canvas background rects are skipped."""
+    body = _strip_cam_terrain(svg)
+    out = []
+    for m in re.finditer(r"<rect([^>]*?)/?>", body):
+        a = m.group(1)
+        x, y, w, h = (_num(a, "x", 0.0), _num(a, "y", 0.0),
+                      _num(a, "width"), _num(a, "height"))
+        if w is None or h is None or w >= 900 or "transform" in a:
+            continue
+        out.append((x, y, x + w, y + h))
+    for m in re.finditer(r"<(circle|ellipse)([^>]*?)/?>", body):
+        a = m.group(2)
+        cx, cy = _num(a, "cx"), _num(a, "cy")
+        rx = _num(a, "r") or _num(a, "rx")
+        ry = _num(a, "r") or _num(a, "ry")
+        if None in (cx, cy, rx, ry) or rx < 2.5:
+            continue          # dots and tiny markers are not shapes to avoid
+        out.append((cx - rx, cy - ry, cx + rx, cy + ry))
+    for m in re.finditer(r"<polygon([^>]*?)/?>", body):
+        pts = re.search(r"points=['\"]([^'\"]+)", m.group(1))
+        if not pts:
+            continue
+        nums = [float(v) for v in re.findall(r"-?\d+\.?\d*", pts.group(1))]
+        xs, ys = nums[0::2], nums[1::2]
+        if xs and ys:
+            out.append((min(xs), min(ys), max(xs), max(ys)))
+    for m in re.finditer(r"<path([^>]*?)/?>", body):
+        a = m.group(1)
+        d = re.search(r"\bd=['\"]([^'\"]+)", a)
+        if not d or not re.search(r"[Zz]\s*$", d.group(1).strip()):
+            continue          # only closed paths enclose an area
+        pts = _path_points(d.group(1))
+        if len(pts) > 1:
+            xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+            out.append((min(xs), min(ys), max(xs), max(ys)))
+    return out
+
+
+def _path_points(d: str):
+    """Vertices of a path from M/L/H/V commands, absolute and relative
+    (arrowheads are drawn as 'M x,y l -6,-3 v 6 Z'). Curve commands are
+    approximated by their end points."""
+    pts, cx, cy, cmd, nums = [], 0.0, 0.0, None, []
+    need = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7}
+    for c, n in re.findall(r"([MLHVCSQTAZmlhvcsqtaz])|(-?\d*\.?\d+(?:e-?\d+)?)", d):
+        if c:
+            cmd, nums = (None if c in "Zz" else c), []
+            continue
+        if cmd is None:
+            continue
+        nums.append(float(n))
+        k = need[cmd.upper()]
+        if len(nums) < k:
+            continue
+        rel = cmd.islower()
+        u = cmd.upper()
+        if u == "H":
+            cx = cx + nums[0] if rel else nums[0]
+        elif u == "V":
+            cy = cy + nums[0] if rel else nums[0]
+        else:
+            x, y = nums[-2], nums[-1]
+            cx, cy = (cx + x, cy + y) if rel else (x, y)
+        pts.append((cx, cy))
+        nums = []
+        if cmd == "M":
+            cmd = "L"
+        elif cmd == "m":
+            cmd = "l"
+    return pts
+
+
 def _strip_cam_terrain(svg: str) -> str:
     """Remove the frozen cam-terrain glyph (copied verbatim, own fixed
     colors/strokes) so style checks below only see the agent's own drawing."""
@@ -291,34 +367,81 @@ def check_layout(svg: str) -> list[str]:
                 errs.append(f"text overlap: '{a[4]}' vs '{b[4]}'")
     for chain in _polylines(svg):
         for box in boxes:
-            clipped = sum(_clip_len((p1[0], p1[1], p2[0], p2[1]), box)
-                          for p1, p2 in zip(chain, chain[1:]))
-            if clipped <= 12.0:
+            for p1, p2 in zip(chain, chain[1:]):
+                c = _clip_len((p1[0], p1[1], p2[0], p2[1]), box)
+                if c <= 3.0:
+                    continue
+                # A line may END at a label (a leader landing on its caption):
+                # exempt a segment only when the chain's true start or end
+                # sits in the box. Anything else passing through — however
+                # short, e.g. a grid line cutting a caption — is a crossing.
+                if (p1 == chain[0] and _inside(p1, box)) or \
+                   (p2 == chain[-1] and _inside(p2, box)):
+                    continue
+                errs.append(f"line crosses label '{box[4]}'")
+                break
+            else:
                 continue
-            # A line/curve may legitimately END at a label (a leader line
-            # landing on a caption) — exempt only when the chain's TRUE
-            # start or end point (not a synthetic arc-sample point) sits in
-            # the box and the total clipped length is little more than just
-            # that tip; anything clipping substantially more is passing
-            # through the label, not landing on it.
-            tip = ((_inside(chain[0], box) or _inside(chain[-1], box))
-                   and clipped <= 16.0)
-            if tip:
-                continue
-            errs.append(f"line crosses label '{box[4]}'")
-    return errs[:10]
+            break
+    # text on top of a drawn shape (grid cell, slab, bar, glyph)
+    for sb in _shape_boxes(svg):
+        for box in boxes:
+            ox = min(sb[2], box[2]) - max(sb[0], box[0])
+            oy = min(sb[3], box[3]) - max(sb[1], box[1])
+            if ox > 3.0 and oy > 3.0:
+                errs.append(f"label '{box[4]}' sits on a drawn shape at "
+                            f"({sb[0]:.0f},{sb[1]:.0f})")
+    return list(dict.fromkeys(errs))[:12]
 
 
 def check(svg: str) -> list[str]:
     errs = []
+    try:
+        import xml.etree.ElementTree as ET
+        ET.fromstring(svg)
+    except Exception as e:
+        errs.append(f"not well-formed SVG/XML ({str(e)[:60]}) — escape & as &amp;, "
+                    "< as &lt; inside text")
     m = re.search(r"viewBox=['\"]\s*0[ ,]+0[ ,]+980[ ,]+(\d+)", svg)
+    h = None
     if not m:
         errs.append("viewBox must be exactly '0 0 980 H' (width is fixed at 980)")
     else:
         h = int(m.group(1))
-        if not 240 <= h <= 640:
-            errs.append(f"viewBox height {h} outside 240-640 — grow height for "
+        if not MIN_H <= h <= MAX_H:
+            errs.append(f"viewBox height {h} outside {MIN_H}-{MAX_H} — grow height for "
                         "breathing room, never width")
+    if h:
+        # nothing may spill past the canvas edge
+        for b in _text_boxes(svg):
+            if b[0] < 2 or b[2] > 978 or b[1] < 2 or b[3] > h - 2:
+                errs.append(f"label '{b[4]}' runs off the canvas "
+                            f"(x {b[0]:.0f}-{b[2]:.0f}, y {b[1]:.0f}-{b[3]:.0f}; canvas 980x{h})")
+        for chain in _polylines(svg):
+            if any(not (-1 <= x <= 981 and -1 <= y <= h + 1) for x, y in chain):
+                errs.append("a line or path runs off the canvas — grow the height "
+                            "or move it inside")
+                break
+        for sb in _shape_boxes(svg):
+            if sb[0] < -1 or sb[2] > 981 or sb[1] < -1 or sb[3] > h + 1:
+                errs.append(f"a shape at ({sb[0]:.0f},{sb[1]:.0f}) runs off the canvas")
+                break
+        # the frozen endpoints sit on the canvas's horizontal centre line
+        mid = h / 2
+        t = re.search(r"<rect[^>]*id=['\"]frozen-input['\"][^>]*>", svg)
+        if t:
+            y, hh = _num(t.group(0), "y"), _num(t.group(0), "height", 76.0)
+            if y is not None and abs(y + hh / 2 - mid) > 2.5:
+                errs.append(f"camera frame must be centred vertically: its centre is "
+                            f"y={y + hh / 2:.0f}, canvas centre is {mid:.0f} "
+                            f"(set its y to {mid - hh / 2:.0f})")
+        t = re.search(r"<text[^>]*id=['\"]frozen-output['\"][^>]*>", svg)
+        if t:
+            y = _num(t.group(0), "y")
+            fs = _num(t.group(0), "font-size", 13.0)
+            if y is not None and abs((y - fs * 0.35) - mid) > 3.0:
+                errs.append(f"(lat, lon, confidence) must be centred vertically on "
+                            f"y={mid:.0f}: set its baseline to y={mid + fs * 0.35:.0f}")
 
     tag = re.search(r"<[^>]*id=['\"]frozen-input['\"][^>]*>", svg)
     if not tag:

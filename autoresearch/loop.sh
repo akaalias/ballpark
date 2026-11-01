@@ -162,7 +162,11 @@ snapshot_model_src() {
 # gate reads architecture_svg from the same file). Non-fatal by design: a
 # failed or invalid draw just leaves that record without a figure rather
 # than aborting the experiment.
-FIGURE_MODEL="${FIGURE_MODEL:-${IMPL_MODEL:-claude-sonnet-5}}"
+# Figures are drawn by Opus 5.5 (2026-11-01, issue #9). Until then this line
+# read ${IMPL_MODEL:-claude-sonnet-5}, and since IMPL_MODEL is never exported
+# every figure of the capture-holdout era was drawn by the older Sonnet 5.
+FIGURE_MODEL="${FIGURE_MODEL:-claude-opus-5-5}"
+FIGURE_TOOLS="Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(.venv/bin/python3:*),Bash(rsvg-convert:*)"
 # --- Figures drawn in PARALLEL (2026-11-01, Alexis) --------------------------
 # Every experiment still gets its figure (hard rule, CLAUDE.md) — but the
 # figure agent no longer sits on the critical path (it was ~7-16 min of every
@@ -211,8 +215,20 @@ figure_job() {
     echo "figure attempt $attempt for $rundir produced no figure"
   done
   if [ -s "$rundir/figure.json" ] && grep -q "<svg" "$rundir/figure.json"; then
-    $PY -m autoresearch.figcheck "$rundir/figure.json" \
-      || echo "WARNING: figure for $rundir violates the anchor contract (cosmetic — kept anyway)"
+    # A figure that fails figcheck gets up to two repair passes, each handed
+    # the exact failures; whatever results is kept (every experiment keeps
+    # its figure), but a still-failing one is marked for a later redraw.
+    for attempt in 1 2; do
+      $PY -m autoresearch.figcheck "$rundir/figure.json" > "$rundir/figcheck.txt" 2>&1 && break
+      echo "figure for $rundir fails figcheck — repair pass $attempt"
+      draw_figure_core "$rundir" "$design" "agent_figure_repair$attempt.json" "$rundir/figcheck.txt" || true
+    done
+    if $PY -m autoresearch.figcheck "$rundir/figure.json" > "$rundir/figcheck.txt" 2>&1; then
+      rm -f "$rundir/.figure_flawed"
+    else
+      touch "$rundir/.figure_flawed"
+      echo "WARNING: figure for $rundir still fails figcheck after repair — kept, marked .figure_flawed"
+    fi
     merge_figure "$rundir"
   else
     touch "$rundir/.figure_missing"
@@ -261,23 +277,33 @@ backfill_missing_figure() {
 # Draw one figure into $1/figure.json from design file $2. No phase report,
 # no merge — callers decide. Returns non-zero when no valid SVG resulted.
 draw_figure_core() {
-  local rundir="$1" design="$2" agent_out="${3:-agent_figure.json}"
+  local rundir="$1" design="$2" agent_out="${3:-agent_figure.json}" repair="${4:-}"
   $PY -c "import json,sys; d=json.load(open('$design')); \
     sys.exit(0 if d.get('architecture',{}).get('stages') else 1)" 2>/dev/null || return 0
   local prompt="$rundir/prompt_figure.md" out="$rundir/figure.json"
-  rm -f "$out"
+  [ -n "$repair" ] || rm -f "$out"
   cat autoresearch/prompt_figure.md > "$prompt"
   { echo
     echo "## Paths for this run (resolve the placeholders referenced above)"
     echo "- Read the experiment record from: \`$design\`"
     echo "- Write ONLY this output file: \`$out\` — a single JSON object of the"
     echo "  form {\"architecture_svg\": \"<svg …>\"} and nothing else."
+    if [ -n "$repair" ]; then
+      echo
+      echo "## REPAIR PASS — the figure already at the output path fails these checks"
+      echo "Start from that file; do not redraw from scratch unless the layout"
+      echo "cannot be fixed in place. Fix every line below, render and look, then"
+      echo "re-run figcheck until it prints PASS:"
+      echo '```'
+      cat "$repair"
+      echo '```'
+    fi
   } >> "$prompt"
-  ${TIMEOUT_BIN:+$TIMEOUT_BIN ${FIGURE_TIMEOUT_S:-1200}} "$CLAUDE_BIN" -p "$(cat "$prompt")" \
+  ${TIMEOUT_BIN:+$TIMEOUT_BIN ${FIGURE_TIMEOUT_S:-1500}} "$CLAUDE_BIN" -p "$(cat "$prompt")" \
     --model "$FIGURE_MODEL" \
     --permission-mode acceptEdits \
-    --max-turns "${FIGURE_MAX_TURNS:-45}" \
-    --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(.venv/bin/python3:*)" \
+    --max-turns "${FIGURE_MAX_TURNS:-60}" \
+    --allowedTools "$FIGURE_TOOLS" \
     --output-format json </dev/null >"$rundir/$agent_out" \
     || echo "figure agent exited non-zero (turn limit or timeout) — using whatever figure it wrote"
   [ -s "$out" ] && $PY -c "import json,sys; s=(json.load(open('$out')).get('architecture_svg') or '').strip(); sys.exit(0 if s.startswith('<svg') else 1)" 2>/dev/null
@@ -314,8 +340,8 @@ draw_figure() {
   "$CLAUDE_BIN" -p "$(cat "$prompt")" \
     --model "$FIGURE_MODEL" \
     --permission-mode acceptEdits \
-    --max-turns "${FIGURE_MAX_TURNS:-45}" \
-    --allowedTools "Read,Write,Grep,Glob,Bash(.venv/bin/python:*),Bash(.venv/bin/python3:*)" \
+    --max-turns "${FIGURE_MAX_TURNS:-60}" \
+    --allowedTools "$FIGURE_TOOLS" \
     --output-format json </dev/null >"$rundir/agent_figure.json" \
     || echo "figure agent exited non-zero (turn limit?) — using whatever figure it wrote"
   # Merge the agent's architecture_svg into the design record (loop.sh does
