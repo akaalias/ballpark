@@ -66,9 +66,11 @@ embedding across surveys, the within-place variance fraction (0 = one
 embedding per place regardless of survey), the fraction of positions on which
 the member names the same cell in every survey, and clean top1 per capture.
 
-PRETRAINED TRUNK (experiment 12): each member's trunk is now ImageNet-
-pretrained MobileNetV3-Small features[0..8] (model.model, BSD-3, loaded strict
-from the baked model/pretrained/mnv3s_features8.pt) + a trainable 1x1 lift.
+PRETRAINED TRUNK (experiment 12, deepened in experiment 13): each member's
+trunk is ImageNet-pretrained MobileNetV3-Small features[0..10] (model.model,
+BSD-3, loaded strict from the baked model/pretrained/mnv3s_features10.pt),
+read at two depths (48x8x8 and 96x4x4), each through its own trainable 1x1
+lift to 56, concatenated to 112.
 The optimiser has two parameter groups: the pretrained trunk blocks at
 TRUNK_LR_MULT (0.1) x the head LR, everything else at 1e-3, both decayed by
 one LambdaLR of the previous cosine shape (multiplier 1.0 -> 0.1 over the run:
@@ -89,10 +91,10 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM,
+from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM, LIFT_DIM,
                          N_MEMBERS, PRETRAINED_TRUNK_PATH, TRUNK_BLOCKS,
-                         TRUNK_LR_MULT, TRUNK_OUT_CH, build_model, export_onnx,
-                         grid_dims, loss_fn)
+                         TRUNK_LR_MULT, TRUNK_MID_CH, TRUNK_OUT_CH, build_model,
+                         export_onnx, grid_dims, loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
@@ -403,7 +405,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     model = build_model(meta).to(device)
     print(f"[{area}] trunk: mobilenet_v3_small features[0..{TRUNK_BLOCKS - 1}] "
           f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
-          f"x {N_MEMBERS} members, lift {TRUNK_OUT_CH}->{EMBED_DIM}, "
+          f"x {N_MEMBERS} members, lifts {TRUNK_MID_CH}->{LIFT_DIM} @8x8 + "
+          f"{TRUNK_OUT_CH}->{LIFT_DIM} @4x4 -> {EMBED_DIM}, "
           f"trunk lr x{TRUNK_LR_MULT}", flush=True)
     trunk_params = [p for m in model.members for p in m.trunk_parameters()]
     head_params = [p for m in model.members for p in m.head_parameters()]
@@ -465,7 +468,7 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "device": device,
         "train_seconds": round(time.time() - t0, 1),
         "onnx_bytes": onnx_path.stat().st_size,
-        "init": ("pretrained:mobilenet_v3_small IMAGENET1K_V1 features[0..8] "
+        "init": ("pretrained:mobilenet_v3_small IMAGENET1K_V1 features[0..10] "
                  "(torchvision, BSD-3), fine-tuned at 0.1x LR"),  # §9
         "n_cells": model.n_cells,
         "distinct_vantages_seen": epochs * len(crops) * n_caps,
@@ -477,13 +480,16 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "per-view photometric+sharpness nuisance randomisation, "
                              "two-member committee with independent augmentation draws per member, "
                              "normalised-prototype cosine head with additive margin, "
-                             "ImageNet-pretrained MobileNetV3-Small trunk per member (0.1x LR)"),
+                             "ImageNet-pretrained MobileNetV3-Small features[0..10] trunk per member (0.1x LR), "
+                             "two-level 8x8 + 4x4 place feature"),
         "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
         "n_members": N_MEMBERS,
-        "trunk": f"mobilenet_v3_small features[0..8] + 1x1 lift {TRUNK_OUT_CH}->{EMBED_DIM}",
+        "trunk": (f"mobilenet_v3_small features[0..10], two-level 1x1 lift "
+                  f"{TRUNK_MID_CH}->{LIFT_DIM} (8x8) + {TRUNK_OUT_CH}->{LIFT_DIM} (4x4) "
+                  f"-> {EMBED_DIM}"),
         "embed_dim": EMBED_DIM,
         "trunk_lr_mult": TRUNK_LR_MULT,
         "pretrained_file": PRETRAINED_TRUNK_PATH.name,

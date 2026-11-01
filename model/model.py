@@ -68,6 +68,18 @@ the ONNX graph and the input contract is unchanged. train.py fine-tunes the
 pretrained blocks at TRUNK_LR_MULT (0.1) times the head learning rate, so the
 ImageNet invariances are adapted to Berlin rather than overwritten by it.
 
+DEEPER PRETRAINED TRUNK (capture-holdout era, experiment 13): each member's
+trunk is deepened to MobileNetV3-Small features[0..10] (stem + ten IR blocks,
+IMAGENET1K_V1, BSD-3), loaded strict from the baked file
+model/pretrained/mnv3s_features10.pt (blocks 0-8 tensor-identical to
+mnv3s_features8.pt). The place feature reads TWO levels of it: the 48x8x8 map
+after block 8 (the level experiment 12 used) and the 96x4x4 map after block 10.
+Each level has its own trainable 1x1 lift to LIFT_DIM = 56 (+ BatchNorm +
+ReLU), is GAP-pooled, and the two halves are concatenated into the same
+112-d feature f feeding the unchanged BatchNorm1d -> L2 -> cosine-prototype
+head and offset head. All eleven pretrained blocks are fine-tuned at
+TRUNK_LR_MULT; the two lifts train at the head LR.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -85,10 +97,13 @@ from torchvision.models import mobilenet_v3_small
 
 CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
 N_MEMBERS = 2  # independent committee members (no shared weights)
-EMBED_DIM = 112   # lift output / prototype / offset-head width (as exp 11)
-TRUNK_BLOCKS = 9  # mobilenet_v3_small.features[:9] = stem + 8 IR blocks -> 48x8x8 at 128 px
-TRUNK_OUT_CH = 48
-PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv3s_features8.pt"
+EMBED_DIM = 112   # concatenated lift output / prototype / offset-head width (as exp 11)
+LIFT_DIM = EMBED_DIM // 2  # per-level lift width (56 + 56 = 112)
+TRUNK_BLOCKS = 11  # mobilenet_v3_small.features[:11] = stem + 10 IR blocks -> 96x4x4 at 128 px
+TRUNK_OUT_CH = 96  # deep level (after block 10)
+TRUNK_MID_BLOCKS = 9  # features[:9] -> 48x8x8 at 128 px (the exp-12 level)
+TRUNK_MID_CH = 48
+PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv3s_features10.pt"
 TRUNK_LR_MULT = 0.1  # pretrained blocks train at this multiple of the head LR
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
@@ -102,7 +117,7 @@ def grid_dims(meta: dict) -> tuple[int, int]:
 
 
 def build_pretrained_trunk() -> nn.Sequential:
-    """MobileNetV3-Small features[0..8] with ImageNet weights loaded STRICT
+    """MobileNetV3-Small features[0..10] with ImageNet weights loaded STRICT
     from the baked file (keys prefixed 'features.'). Call once per member so
     each owns an independent copy."""
     trunk = mobilenet_v3_small(weights=None).features[:TRUNK_BLOCKS]
@@ -112,15 +127,21 @@ def build_pretrained_trunk() -> nn.Sequential:
 
 
 class Member(nn.Module):
-    """One independent localizer: pretrained MobileNetV3-Small trunk -> 1x1
-    lift -> GAP -> (C-way cell COSINES against normalised prototypes,
-    within-cell offset)."""
+    """One independent localizer: pretrained MobileNetV3-Small trunk read at
+    two depths (8x8 after block 8, 4x4 after block 10) -> one 1x1 lift per
+    level -> GAP -> concat -> (C-way cell COSINES against normalised
+    prototypes, within-cell offset)."""
 
     def __init__(self, n_cells: int):
         super().__init__()
+        # One Sequential holding exactly the 11 pretrained blocks, so
+        # trunk_parameters()/head_parameters() split cleanly; embed() runs it
+        # in two slices (slicing shares the same submodules).
         self.trunk = build_pretrained_trunk()
-        self.lift = nn.Sequential(nn.Conv2d(TRUNK_OUT_CH, EMBED_DIM, 1, bias=False),
-                                  nn.BatchNorm2d(EMBED_DIM), nn.ReLU(inplace=True))
+        self.lift_mid = nn.Sequential(nn.Conv2d(TRUNK_MID_CH, LIFT_DIM, 1, bias=False),
+                                      nn.BatchNorm2d(LIFT_DIM), nn.ReLU(inplace=True))
+        self.lift_deep = nn.Sequential(nn.Conv2d(TRUNK_OUT_CH, LIFT_DIM, 1, bias=False),
+                                       nn.BatchNorm2d(LIFT_DIM), nn.ReLU(inplace=True))
         self.register_buffer("in_mean", torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1))
         self.register_buffer("in_std", torch.tensor(IMAGENET_STD).view(1, 3, 1, 1))
         self.embed_bn = nn.BatchNorm1d(EMBED_DIM)
@@ -133,15 +154,19 @@ class Member(nn.Module):
         return list(self.trunk.parameters())
 
     def head_parameters(self):
-        """Everything not in self.trunk: lift, embed_bn, prototypes, off_head."""
+        """Everything not in self.trunk: both lifts, embed_bn, prototypes, off_head."""
         trunk_ids = {id(p) for p in self.trunk.parameters()}
         return [p for p in self.parameters() if id(p) not in trunk_ids]
 
     def embed(self, x):
         """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
         feature [B, D]. x is float [0,1]; ImageNet normalisation is in-graph."""
-        f = self.lift(self.trunk((x - self.in_mean) / self.in_std)).mean(dim=(2, 3))
-        e = F.normalize(self.embed_bn(f), dim=1)
+        xn = (x - self.in_mean) / self.in_std
+        h_mid = self.trunk[:TRUNK_MID_BLOCKS](xn)       # [B, 48, 8, 8]
+        h_deep = self.trunk[TRUNK_MID_BLOCKS:](h_mid)   # [B, 96, 4, 4]
+        f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
+                       self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]
+        e =F.normalize(self.embed_bn(f), dim=1)
         return e, f
 
     def forward(self, x):
