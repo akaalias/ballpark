@@ -514,6 +514,7 @@ def experiment_panel(tick, est):
                          (f"  {mins(ph_el)} of about {mins(usual)} usual" + note, style)))
     lines.append(Text(""))
     lines.append(row("started", (day(float(pj.get("iter_started") or now)), "default")))
+    lines.append(row("elapsed", (mins(el), "bold"), ("  since the experiment started", MUTED)))
     if left is not None:
         lines.append(row("left", (f"about {mins(left)} (estimate)", "default")))
         lines.append(row("ends", (f"about {day(now + left)}", "default")))
@@ -590,12 +591,12 @@ def recent_panel():
     t = Table(box=box.SIMPLE_HEAD, expand=True, padding=(0, 1), header_style=MUTED)
     t.add_column("#", width=3); t.add_column("experiment", ratio=1, no_wrap=True, overflow="ellipsis")
     t.add_column("verdict", width=9); t.add_column("score", justify="right", width=6)
-    t.add_column("usable", justify="right", width=6); t.add_column("time", justify="right", width=7)
+    t.add_column("usable", justify="right", width=6); t.add_column("total", justify="right", width=7)
     for eid, title, cat, score, kept, dur, mj, kind in rows:
         _, b, _ = rates(read_json_s(mj))
         usable = f"{(b.get('usable_fix_rate') or 0) * 100:.1f}%" if b else "–"
         verdict = "kept" if kept else "reverted"
-        if score is not None and score >= 1e17:
+        if score is not None and score >= 1e8:   # scorer FAIL_SCORE is 1e9
             verdict, score_s = "gated", "×"
         else:
             score_s = f"{score:.3f}" if score is not None else "–"
