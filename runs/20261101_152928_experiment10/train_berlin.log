@@ -1,0 +1,31 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0e7f4b220e65c9939 Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261024
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] launched i-0d78359e4849e4b3c g6.xlarge on-demand in eu-central-1b at ~$1.006/h
+[box] boot 2026-11-01T16:04:34Z
+[box] downloads done 2026-11-01T16:04:39Z
+NVIDIA L4, 23034 MiB, 595.112.07
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[box] torch 2.14.1+cu130 cuda True
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+[berlin] 72712 lattice positions, 2970 cells, device=cuda
+[berlin] canonical composite built from 3 training captures in 3.6s, channel means=[111.27, 111.82, 108.66]
+[berlin] epoch 1/8 loss=16.3784 top1=0.0145 mean_max_softmax=0.0076 views=218136 lr=9.66e-04 top1_by_capture={'bb_dop20': 0.0143, 'truedop_2022': 0.0135, 'truedop_2023': 0.0156} member_top1=[0.0122, 0.0135] agree_rate=0.2458 recon=[0.303, 0.3032]
+[berlin] epoch 2/8 loss=14.2899 top1=0.0664 mean_max_softmax=0.0252 views=218136 lr=8.68e-04 top1_by_capture={'bb_dop20': 0.0654, 'truedop_2022': 0.0619, 'truedop_2023': 0.0718} member_top1=[0.0554, 0.0591] agree_rate=0.2537 recon=[0.2799, 0.2799]
+[berlin] epoch 3/8 loss=13.1514 top1=0.1379 mean_max_softmax=0.0448 views=218136 lr=7.22e-04 top1_by_capture={'bb_dop20': 0.1325, 'truedop_2022': 0.1277, 'truedop_2023': 0.1534} member_top1=[0.1164, 0.1187] agree_rate=0.2585 recon=[0.2753, 0.2753]
+[berlin] epoch 4/8 loss=12.3428 top1=0.2075 mean_max_softmax=0.0655 views=218136 lr=5.50e-04 top1_by_capture={'bb_dop20': 0.1967, 'truedop_2022': 0.1922, 'truedop_2023': 0.2337} member_top1=[0.1763, 0.1789] agree_rate=0.2793 recon=[0.2722, 0.2723]
+[berlin] epoch 5/8 loss=11.8085 top1=0.2633 mean_max_softmax=0.0815 views=218136 lr=3.78e-04 top1_by_capture={'bb_dop20': 0.2466, 'truedop_2022': 0.2445, 'truedop_2023': 0.2987} member_top1=[0.2245, 0.2238] agree_rate=0.2959 recon=[0.2695, 0.2695]
+[berlin] epoch 6/8 loss=11.4351 top1=0.3068 mean_max_softmax=0.0923 views=218136 lr=2.32e-04 top1_by_capture={'bb_dop20': 0.2872, 'truedop_2022': 0.287, 'truedop_2023': 0.3464} member_top1=[0.2613, 0.2616] agree_rate=0.3082 recon=[0.267, 0.2671]
+[berlin] epoch 7/8 loss=11.2002 top1=0.3376 mean_max_softmax=0.0983 views=218136 lr=1.34e-04 top1_by_capture={'bb_dop20': 0.3144, 'truedop_2022': 0.3164, 'truedop_2023': 0.382} member_top1=[0.2877, 0.2877] agree_rate=0.3165 recon=[0.2651, 0.2653]
+[berlin] epoch 8/8 loss=11.0538 top1=0.3594 mean_max_softmax=0.1014 views=218136 lr=1.00e-04 top1_by_capture={'bb_dop20': 0.3335, 'truedop_2022': 0.3397, 'truedop_2023': 0.4049} member_top1=[0.3051, 0.3053] agree_rate=0.3200 recon=[0.2639, 0.2642]
+{"area": "berlin", "n_train_crops": 1745088, "epochs": 8, "device": "cuda", "train_seconds": 530.8, "onnx_bytes": 3942411, "init": "from-scratch", "n_cells": 2970, "distinct_vantages_seen": 1745088, "full_lattice_epochs": true, "final_train_top1": 0.3594, "chunk_size": 4096, "max_crops_per_bucket_arg": 6000, "capture_sampling": "paired-position interleave, shared heading per position, per-view photometric+sharpness nuisance randomisation, two-member committee with independent augmentation draws per member, canonical-composite reconstruction auxiliary per member", "augmentation": {"blur_p": 0.7, "blur_sigma_max": 1.5, "blur_taps": 7, "exposure": [0.75, 1.3], "channel_gain": [0.85, 1.15], "contrast": [0.6, 1.4], "brightness": [-0.12, 0.12], "gamma": [0.7, 1.4], "saturation": [0.5, 1.5], "noise_sigma_max": 0.03}, "captures": ["bb_dop20", "truedop_2022", "truedop_2023"], "positions_per_chunk": 1365, "final_train_top1_by_capture": {"bb_dop20": 0.3335, "truedop_2022": 0.3397, "truedop_2023": 0.4049}, "n_members": 2, "member_chans": [3, 24, 48, 96, 112], "final_member_top1": [0.3051, 0.3053], "final_member_agree_rate": 0.32, "recon_weight": 3.0, "canon_px": 32, "final_recon": [0.2639, 0.2642], "canonical_target": "per-pixel per-channel median of the globally colour-normalised TRAINING captures, cut at the view geometry, avg-pooled to 32x32, standardised per crop per channel; decoder training-only, never exported"}
+[box] train exit=0 seconds=540
+[box] result uploaded
+[aws] machine i-0d78359e4849e4b3c terminated after 12.2 min (on-demand, ~$0.20)
+[aws] done
