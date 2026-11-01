@@ -473,9 +473,17 @@ def experiment_panel(tick, est):
         else:
             lines.append(row("epochs", bar(0.0, colour=ACCENT_SOFT), ("  loading the three photographs…", MUTED)))
     elif ph in PHASES:
-        over = ph_el > weights[ph]
-        lines.append(row(ph[:8], bar(min(ph_el / weights[ph], 1.0) if weights[ph] else 0, colour=BAD if over else ACCENT_SOFT),
-                         (f"  {mins(ph_el)} of about {mins(weights[ph])} usual" + (" — over" if over else ""), BAD if over else "default")))
+        # Red only for a real overrun (over twice the usual AND 3+ min over):
+        # a step running a little long is normal variation, not an alarm.
+        usual = weights[ph]
+        if usual and ph_el > 2 * usual and ph_el - usual >= 180:
+            colour, note, style = BAD, " — well over usual, worth a look", BAD
+        elif ph_el > usual:
+            colour, note, style = ACCENT, " — a little over", "default"
+        else:
+            colour, note, style = ACCENT_SOFT, "", "default"
+        lines.append(row(ph[:8], bar(min(ph_el / usual, 1.0) if usual else 0, colour=colour),
+                         (f"  {mins(ph_el)} of about {mins(usual)} usual" + note, style)))
     lines.append(Text(""))
     lines.append(row("started", (day(float(pj.get("iter_started") or now)), "default")))
     if left is not None:
