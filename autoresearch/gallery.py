@@ -1252,9 +1252,20 @@ def live_row(next_id):
     # exited without reaching that line (2026-10-31: the row pulsed as
     # "experiment 6 — design not finished yet" for a day, under experiment
     # 5's title borrowed by the JS). Either way: a quiet idle row, no clock.
+    # The loop itself renders this page at the END of each experiment, when
+    # phase.json still names the experiment that just finished — so "finished
+    # experiment + publish/synced phase" only means idle if no loop is alive
+    # (2026-11-01: the row read "idle" while experiment 10 was designing).
+    try:
+        import subprocess
+        loop_alive = bool(subprocess.run(["pgrep", "-f", "autoresearch/loop.sh"],
+                                         capture_output=True, text=True).stdout.strip())
+    except OSError:
+        loop_alive = False
     try:
         idle = (pj.get("phase") == "idle"
-                or (pj.get("phase") in ("synced", "publish", "score")
+                or (not loop_alive
+                    and pj.get("phase") in ("synced", "publish", "score")
                     and int(pj.get("iter") or -1) < int(next_id)))
     except (ValueError, TypeError):
         idle = False
