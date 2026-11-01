@@ -12,6 +12,7 @@ pyyaml
 pillow
 jinja2
 requests
+boto3          # infra/aws_train.py (remote training on AWS)
 # fetch-time only (data/ is normally rsynced, but imports must resolve)
 rasterio
 pystac-client

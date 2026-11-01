@@ -567,8 +567,14 @@ PYSEED
       # Train on a remote GPU worker (stateless — no git on it, so the laptop
       # stays the sole writer). Same out-dir structure (models/*.onnx +
       # train_info.json) as local training, so the merge/score steps below are
-      # unchanged. REMOTE_BACKEND: modal (serverless, default) | runpod (pod).
-      if [ "${REMOTE_BACKEND:-modal}" = "runpod" ]; then
+      # unchanged. REMOTE_BACKEND: aws (default; per-run spot GPU, ships only
+      # the role: train captures) | modal | runpod. modal and runpod upload
+      # ALL of data/<area>, eval capture included — do not use them in the
+      # capture-holdout era until that is fixed (issue #3).
+      if [ "${REMOTE_BACKEND:-aws}" = "aws" ]; then
+        $PY infra/aws_train.py "$area" "$RUN_DIR/train_$area" "$EPOCHS" "$TRAIN_CROPS" \
+          >"$RUN_DIR/train_$area.log" 2>&1 &
+      elif [ "${REMOTE_BACKEND}" = "runpod" ]; then
         infra/remote_train.sh "$area" "$RUN_DIR/train_$area" "$EPOCHS" "$TRAIN_CROPS" \
           >"$RUN_DIR/train_$area.log" 2>&1 &
       else
