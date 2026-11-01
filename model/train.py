@@ -43,6 +43,17 @@ reads: ~24% faster per epoch on the M1, more on a CUDA card. Keep new
 per-view work on the device and avoid .item()/.cpu()/int()/float() on device
 tensors inside the step loop — each one stalls the GPU queue.
 
+COMMITTEE (experiment 7): the model is two fully independent members
+(model.model.N_MEMBERS) whose deployed confidence is the smaller of the two
+members' belief on the consensus block. Each mini-batch is cut once, then every
+member gets its OWN independent augment_views() draw of those crops and its own
+loss (tent cross-entropy + residual offset target from that member's own
+logits); the losses are summed into one optimiser step. There is no agreement
+term: members differ by init and augmentation draws, and that diversity IS the
+mechanism — disagreement between independently trained models is epistemic
+uncertainty, the confidence gate that survives a change of photograph.
+Per-member top1 and the member agreement rate are logged per epoch.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -56,7 +67,8 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 
-from model.model import CELL_PX, build_model, export_onnx, grid_dims, loss_fn
+from model.model import (CELL_PX, MEMBER_CHANS, N_MEMBERS, build_model,
+                         export_onnx, grid_dims, loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
 from pipeline.dataset import CROP_PX, WINDOW_PX, list_crops
 
@@ -203,18 +215,16 @@ def residual_offset_target(model, logits, pos, meta):
     """(true position - model's 3x3 pooled centroid), in cell units,
     clamped to the offset head's (-0.5, 0.5) range. Detached.
 
-    Mirrors forward()'s pooling exactly, using the model's own buffers so the
-    grid geometry stays single-sourced. Early in training the argmax is noisy,
-    so this target is nonstationary; that is expected and bounded by the clamp.
+    Mirrors forward()'s pooling exactly, using the model's own block_mask()
+    and buffers so the grid geometry stays single-sourced. Called once per
+    committee member with that member's own logits. Early in training the
+    argmax is noisy, so this target is nonstationary; that is expected and
+    bounded by the clamp.
     """
     with torch.no_grad():
         p = F.softmax(logits, dim=1)
         idx = p.argmax(dim=1)
-        win_u = model.cell_u.index_select(0, idx)
-        win_v = model.cell_v.index_select(0, idx)
-        du = (model.cell_u.unsqueeze(0) - win_u.unsqueeze(1)).abs()
-        dv = (model.cell_v.unsqueeze(0) - win_v.unsqueeze(1)).abs()
-        mask = ((du <= 1.6 * model.scale_u) & (dv <= 1.6 * model.scale_v)).float()
+        mask = model.block_mask(idx)
         q = p * mask
         m = q.sum(dim=1).clamp_min(1e-9)
         cu = (q * model.cell_u.unsqueeze(0)).sum(dim=1) / m
@@ -237,6 +247,8 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
     conf_sum = torch.zeros((), device=device)
     cap_correct = torch.zeros(n_caps, dtype=torch.int64, device=device)
     cap_seen = torch.zeros(n_caps, dtype=torch.int64, device=device)
+    member_correct = torch.zeros(N_MEMBERS, dtype=torch.int64, device=device)
+    agree = torch.zeros((), dtype=torch.int64, device=device)
     seen = 0
     order = rng.permutation(len(crop_xy))
     for ci, start in enumerate(range(0, len(order), pos_per_chunk)):
@@ -251,31 +263,45 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
             idx = perm[i:i + BATCH_SIZE]
             B = len(idx)
             cap_b = cap_idx[idx]
-            xb = augment_views(gpu_crops(scene, cap_b, cx[idx], cy[idx], ang[idx]))
+            # Cut once; each member gets its OWN independent augmentation draw.
+            xb0 = gpu_crops(scene, cap_b, cx[idx], cy[idx], ang[idx])
             cb, pb = cell_idx[idx], pos[idx]
-            logits, off_pred = model.training_outputs(xb)
             soft_t = make_soft_targets(pb, meta, model.n_cells, gw, gh)
-            off_t = residual_offset_target(model, logits, pb, meta)
-            loss = loss_fn(logits, off_pred, soft_t, off_t)
+            loss = torch.zeros((), device=device)
+            member_logits = []
+            for member in model.members:
+                xb_k = augment_views(xb0)
+                logits_k, off_k = member(xb_k)
+                off_t_k = residual_offset_target(model, logits_k, pb, meta)
+                loss = loss + loss_fn(logits_k, off_k, soft_t, off_t_k)
+                member_logits.append(logits_k)
             opt.zero_grad(); loss.backward(); opt.step()
             with torch.no_grad():
                 loss_sum += loss.detach() * B
+                member_args = [l.argmax(dim=1) for l in member_logits]
+                for k, a in enumerate(member_args):
+                    member_correct[k] += (a == cb).long().sum()
+                agree += (member_args[0] == member_args[1]).long().sum()
+                # Committee belief: mean of the member softmaxes.
+                pbar = torch.stack([F.softmax(l, dim=1) for l in member_logits], 0).mean(0)
                 # top1 is measured on AUGMENTED views, so it reads lower
                 # than experiment 2's 0.79 by design; judge by eval.
                 # top1 is vs. the CONTAINING cell, so it now reads lower
                 # than exp 4's 0.83 BY DESIGN: border views are supposed
                 # to split mass across the tent's cells. Judge
                 # convergence by loss and by eval, not by this.
-                hit = (logits.argmax(dim=1) == cb).long()
+                hit = (pbar.argmax(dim=1) == cb).long()
                 correct += hit.sum()
                 cap_correct.scatter_add_(0, cap_b, hit)
                 cap_seen.scatter_add_(0, cap_b, torch.ones_like(cap_b))
-                conf_sum += F.softmax(logits, dim=1).max(dim=1).values.sum()
+                conf_sum += pbar.max(dim=1).values.sum()
                 seen += B
     return {"loss_sum": float(loss_sum), "correct": int(correct),
             "conf_sum": float(conf_sum), "seen": seen,
             "cap_correct": cap_correct.cpu().tolist(),
-            "cap_seen": cap_seen.cpu().tolist()}
+            "cap_seen": cap_seen.cpu().tolist(),
+            "member_correct": member_correct.cpu().tolist(),
+            "agree": int(agree)}
 
 
 def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
@@ -303,6 +329,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     crop_xy = torch.tensor([(c["cx"], c["cy"]) for c in crops], dtype=torch.int64)
     final_top1 = 0.0
     final_top1_by_cap = {nm: 0.0 for nm in names}
+    final_member_top1 = [0.0] * N_MEMBERS
+    final_agree = 0.0
     for epoch in range(epochs):
         stats = run_epoch(model, opt, meta, scene, crop_xy, rng, device,
                           n_caps, pos_per_chunk, gw, gh)
@@ -312,10 +340,13 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         final_top1_by_cap = {
             nm: round(stats["cap_correct"][k] / max(stats["cap_seen"][k], 1), 4)
             for k, nm in enumerate(names)}
+        final_member_top1 = [round(c / max(seen, 1), 4) for c in stats["member_correct"]]
+        final_agree = round(stats["agree"] / max(seen, 1), 4)
         print(f"[{area}] epoch {epoch + 1}/{epochs} loss={stats['loss_sum'] / max(seen, 1):.4f} "
               f"top1={final_top1:.4f} mean_max_softmax={stats['conf_sum'] / max(seen, 1):.4f} "
               f"views={seen} lr={sched.get_last_lr()[0]:.2e} "
-              f"top1_by_capture={final_top1_by_cap}", flush=True)
+              f"top1_by_capture={final_top1_by_cap} "
+              f"member_top1={final_member_top1} agree_rate={final_agree:.4f}", flush=True)
 
     models_dir = out_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -336,11 +367,16 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "chunk_size": CHUNK_SIZE,
         "max_crops_per_bucket_arg": max_crops_per_bucket,
         "capture_sampling": ("paired-position interleave, shared heading per position, "
-                             "per-view photometric+sharpness nuisance randomisation"),
+                             "per-view photometric+sharpness nuisance randomisation, "
+                             "two-member committee with independent augmentation draws per member"),
         "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
+        "n_members": N_MEMBERS,
+        "member_chans": MEMBER_CHANS,
+        "final_member_top1": final_member_top1,
+        "final_member_agree_rate": final_agree,
     }
 
 
