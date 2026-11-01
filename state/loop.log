@@ -48,3 +48,10 @@ wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/galle
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
+Uploading LFS objects: 100% (2/2), 5.3 MB | 527 KB/s, done.
+=== Experiment 13 (12/15 recorded)  run=20261101_173258_experiment13  parent=e21800ab0b43a31bb03671167a12cb1bee140b1a ===
+
+Interrupted — discarding the in-flight experiment (all completed
+experiments are already committed/logged). Safe to restart with:
+  ./autoresearch/loop.sh
+Working tree dirty — committing pending changes as a pre-loop checkpoint.
