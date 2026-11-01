@@ -120,6 +120,21 @@ reaches its target**. Today every frame is a 128 m footprint at 1 m/px
 - Data is available: all four Berlin captures are 20 cm/px native (we
   resample to 1 m today); a 25 m frame needs ~0.25 m/px, ~16x the raster.
 
+### NEXT PHASE (planned, not started): simulated flight on ArduPilot — issue #11
+
+Decided by Alexis on 2026-11-01 as its own phase. **No physical flying.**
+ArduPilot SITL flies a simulated quad with its real flight code; its
+simulated GPS is switched off and **our model is the only position source**.
+A Python bridge reads the true pose from SITL (used only to render the
+camera), cuts the nadir frame from **truedop_2024** (eval-time use, as in
+score.py — never training), runs the champion (host first, later the real
+ESP32-P4 over USB/UART as hardware-in-the-loop), and sends a confident fix
+to ArduPilot as external position; an abstention sends nothing. Main risk:
+the EKF expects ~5 Hz GPS and we deliver a fix every 5-10 s — try the
+external-nav source first. Replaces `sim/flightsim.py`'s homemade dynamics.
+It validates, it does not change the mission score. Order relative to the
+altitude era is not decided.
+
 ---
 
 ## THE PRIGNITZ DETOUR — opened and rewound, 2026-07-31 → 08-01
