@@ -4794,10 +4794,13 @@ def render_paths(exps):
     paths_sub = (
         f"{len(figs)} model designs, one figure per experiment &mdash; a "
         f"technical drawing of what one camera frame goes through, from pixels "
-        f"to <i>(lat,&nbsp;lon,&nbsp;confidence)</i>. Every figure was drawn and "
-        f"locked <b>before</b> that experiment trained, alongside a falsifiable "
-        f"hypothesis, so what you compare is the design as <i>proposed</i>, not "
-        f"redrawn to match a result already known. <b>Newest first</b>, grouped "
+        f"to <i>(lat,&nbsp;lon,&nbsp;confidence)</i>. Every figure is drawn from "
+        f"the experiment's <b>pre-registered</b> design record &mdash; written, "
+        f"with a falsifiable hypothesis, before it trained &mdash; and never from "
+        f"its result, so what you compare is the design as <i>proposed</i>. "
+        f"(The held-out-photograph era's figures were redrawn on 1&nbsp;November "
+        f"2026 from those same records, because the originals had become "
+        f"illegible; the originals are kept beside each run.) <b>Newest first</b>, grouped "
         f"by evaluation era: the lineage was wiped at each era boundary, so no "
         f"design descends from one in an earlier band &mdash; several late "
         f"figures are early ideas tried again once the measurement could "
@@ -4818,7 +4821,8 @@ def render_paths(exps):
 <p><b>Who designed these.</b> Not me. An <b>autonomous loop of coding agents</b>
 designs, trains and scores one pre-registered experiment at a time, keeping
 only what measurably helps; this site is its lab notebook. Every figure below
-is an agent's own proposal, drawn before it was allowed to train.</p>
+is an agent's own proposal, drawn from the design it registered before it
+was allowed to train.</p>
 <p><b>The scope they were working in.</b> The project currently runs a
 deliberately narrowed configuration: one locale (Berlin), raw daytime imagery
 only, no synthetic low-light simulation — trading the full spec's four areas
