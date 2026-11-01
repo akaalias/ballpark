@@ -81,7 +81,11 @@ files, not the research record.
   add it to training "just to see". Changing it is a new era.
 - The loop pushes to `origin/capture-holdout`. `state/research_status` is
   `live` here; `main`'s is `finished`.
-- **Figures:** `DRAW_FIGURES` defaults to `1` (every design drawn up front,
+- **Figures — HARD RULE: every experiment gets its figure, always.** Never
+  suggest `DRAW_FIGURES=kept`, `0`, or skipping/cheapening figures to save
+  cost, usage or time — Alexis has had to repeat this (2026-10-31, again
+  2026-11-01). A missing figure is backfilled, never accepted.
+  `DRAW_FIGURES` defaults to `1` (every design drawn up front,
   reverted ones included — Alexis's call, 2026-10-31, after a day on `kept`).
   `kept` draws after scoring, only for an experiment that became the new
   best, from its own `experiment.json`; `0` never. A figure for a finished run
