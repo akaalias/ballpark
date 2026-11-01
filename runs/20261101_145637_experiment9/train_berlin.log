@@ -1,0 +1,30 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0e7f4b220e65c9939 Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261024
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] launched i-0e18abe9a33d9a615 g6.xlarge on-demand in eu-central-1b at ~$1.006/h
+[box] boot 2026-11-01T15:19:10Z
+[box] downloads done 2026-11-01T15:19:15Z
+NVIDIA L4, 23034 MiB, 595.112.07
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[box] torch 2.14.1+cu130 cuda True
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+[berlin] 72712 lattice positions, 2970 cells, device=cuda
+[berlin] epoch 1/8 loss=18.4243 top1=0.0008 mean_max_softmax=0.0010 views=218136 lr=9.66e-04 top1_by_capture={'bb_dop20': 0.0008, 'truedop_2022': 0.0008, 'truedop_2023': 0.0008} member_top1=[0.0005, 0.0008] agree_rate=0.2212 inv=[0.1133, 0.1271] xsurvey_agree=[0.61, 0.5036]
+[berlin] epoch 2/8 loss=16.7665 top1=0.0011 mean_max_softmax=0.0011 views=218136 lr=8.68e-04 top1_by_capture={'bb_dop20': 0.0012, 'truedop_2022': 0.0011, 'truedop_2023': 0.0011} member_top1=[0.0002, 0.0011] agree_rate=0.0593 inv=[0.0453, 0.0484] xsurvey_agree=[0.8284, 0.3537]
+[berlin] epoch 3/8 loss=16.4760 top1=0.0014 mean_max_softmax=0.0013 views=218136 lr=7.22e-04 top1_by_capture={'bb_dop20': 0.0014, 'truedop_2022': 0.0014, 'truedop_2023': 0.0015} member_top1=[0.0003, 0.0015] agree_rate=0.0253 inv=[0.0397, 0.0421] xsurvey_agree=[0.8378, 0.2405]
+[berlin] epoch 4/8 loss=16.2125 top1=0.0028 mean_max_softmax=0.0015 views=218136 lr=5.50e-04 top1_by_capture={'bb_dop20': 0.0025, 'truedop_2022': 0.0029, 'truedop_2023': 0.0031} member_top1=[0.0003, 0.0029] agree_rate=0.0144 inv=[0.0354, 0.0382] xsurvey_agree=[0.8465, 0.181]
+[berlin] epoch 5/8 loss=16.0111 top1=0.0041 mean_max_softmax=0.0019 views=218136 lr=3.78e-04 top1_by_capture={'bb_dop20': 0.004, 'truedop_2022': 0.0039, 'truedop_2023': 0.0044} member_top1=[0.0003, 0.0041] agree_rate=0.0096 inv=[0.033, 0.0356] xsurvey_agree=[0.8302, 0.1266]
+[berlin] epoch 6/8 loss=15.8477 top1=0.0061 mean_max_softmax=0.0021 views=218136 lr=2.32e-04 top1_by_capture={'bb_dop20': 0.0054, 'truedop_2022': 0.0062, 'truedop_2023': 0.0066} member_top1=[0.0003, 0.0061] agree_rate=0.0065 inv=[0.0305, 0.0331] xsurvey_agree=[0.8, 0.0871]
+[berlin] epoch 7/8 loss=15.7592 top1=0.0072 mean_max_softmax=0.0022 views=218136 lr=1.34e-04 top1_by_capture={'bb_dop20': 0.0064, 'truedop_2022': 0.0071, 'truedop_2023': 0.008} member_top1=[0.0003, 0.0072] agree_rate=0.0018 inv=[0.0286, 0.0317] xsurvey_agree=[0.7387, 0.0651]
+[berlin] epoch 8/8 loss=15.6945 top1=0.0079 mean_max_softmax=0.0022 views=218136 lr=1.00e-04 top1_by_capture={'bb_dop20': 0.0075, 'truedop_2022': 0.0074, 'truedop_2023': 0.0088} member_top1=[0.0003, 0.0079] agree_rate=0.0030 inv=[0.0271, 0.0307] xsurvey_agree=[0.7387, 0.0528]
+{"area": "berlin", "n_train_crops": 1745088, "epochs": 8, "device": "cuda", "train_seconds": 410.2, "onnx_bytes": 3942411, "init": "from-scratch", "n_cells": 2970, "distinct_vantages_seen": 1745088, "full_lattice_epochs": true, "final_train_top1": 0.0079, "chunk_size": 4096, "max_crops_per_bucket_arg": 6000, "capture_sampling": "paired-position interleave, shared heading per position, per-view photometric+sharpness nuisance randomisation, two-member committee with independent augmentation draws per member, cross-survey within-place variance penalty on each member's pooled feature", "augmentation": {"blur_p": 0.7, "blur_sigma_max": 1.5, "blur_taps": 7, "exposure": [0.75, 1.3], "channel_gain": [0.85, 1.15], "contrast": [0.6, 1.4], "brightness": [-0.12, 0.12], "gamma": [0.7, 1.4], "saturation": [0.5, 1.5], "noise_sigma_max": 0.03}, "captures": ["bb_dop20", "truedop_2022", "truedop_2023"], "positions_per_chunk": 1365, "final_train_top1_by_capture": {"bb_dop20": 0.0075, "truedop_2022": 0.0074, "truedop_2023": 0.0088}, "n_members": 2, "member_chans": [3, 24, 48, 96, 112], "final_member_top1": [0.0003, 0.0079], "final_member_agree_rate": 0.003, "invariance_weight": 10.0, "final_invariance": [0.0271, 0.0307], "final_xsurvey_agree": [0.7387, 0.0528], "batching": "position-grouped: every position in a mini-batch appears in all training captures (position-major rows)"}
+[box] train exit=0 seconds=415
+[box] result uploaded
+[aws] machine i-0e18abe9a33d9a615 terminated after 11.2 min (on-demand, ~$0.19)
+[aws] done
