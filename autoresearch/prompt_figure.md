@@ -95,6 +95,15 @@ horizontal space over stacking it against a neighbor. Width is fixed
 at 980, but **height is yours**: grow the viewBox (240–640) whenever
 more vertical room makes the layout cleaner rather than cramming.
 
+**Save early, save often.** Write your first complete figure to the output
+path within your first few turns, and overwrite it there after every
+improvement. Your turn budget is capped: a run that hits the cap keeps
+whatever is at the output path, and a figure that still has one or two
+collisions is far better than none (experiment 10's agent refined a
+draft in a scratch file for 46 turns and left nothing). Keep any helper
+script or scratch file inside this run's directory (the folder of the
+output path), never at the top of `runs/`.
+
 **Before finishing, validate:** `.venv/bin/python -m autoresearch.figcheck
 <your output path>` — it checks the anchor contract; revise until it
 prints PASS. Consecutive conv layers must be tied by kernel-projection
