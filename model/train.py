@@ -77,6 +77,11 @@ one LambdaLR of the previous cosine shape (multiplier 1.0 -> 0.1 over the run:
 head 1e-3 -> 1e-4 as before, trunk 1e-4 -> 1e-5). Trunk BatchNorm layers stay
 in train mode so their running stats adapt to aerial imagery.
 
+STYLE MIXING (experiment 14): model.model.MixStyle blends each training
+view's per-channel feature mean/std after trunk blocks 1/3/6 with a batch
+partner's (usually another survey's), p=0.5, Beta(0.1,0.1); it is identity in
+eval mode, so survey_diag and the export measure the mixing-free embedding.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -92,7 +97,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from model.model import (CELL_PX, COS_MARGIN, COS_SCALE, EMBED_DIM, LIFT_DIM,
-                         N_MEMBERS, PRETRAINED_TRUNK_PATH, TRUNK_BLOCKS,
+                         MIXSTYLE_AFTER, MIXSTYLE_ALPHA, MIXSTYLE_P, N_MEMBERS, PRETRAINED_TRUNK_PATH, TRUNK_BLOCKS,
                          TRUNK_LR_MULT, TRUNK_MID_CH, TRUNK_OUT_CH, build_model,
                          export_onnx, grid_dims, loss_fn)
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta
@@ -407,7 +412,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
           f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
           f"x {N_MEMBERS} members, lifts {TRUNK_MID_CH}->{LIFT_DIM} @8x8 + "
           f"{TRUNK_OUT_CH}->{LIFT_DIM} @4x4 -> {EMBED_DIM}, "
-          f"trunk lr x{TRUNK_LR_MULT}", flush=True)
+          f"trunk lr x{TRUNK_LR_MULT}, MixStyle after blocks {list(MIXSTYLE_AFTER)} "
+          f"p={MIXSTYLE_P} alpha={MIXSTYLE_ALPHA} (train only)", flush=True)
     trunk_params = [p for m in model.members for p in m.trunk_parameters()]
     head_params = [p for m in model.members for p in m.head_parameters()]
     all_ids = [id(p) for p in model.parameters()]
@@ -481,7 +487,11 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "two-member committee with independent augmentation draws per member, "
                              "normalised-prototype cosine head with additive margin, "
                              "ImageNet-pretrained MobileNetV3-Small features[0..10] trunk per member (0.1x LR), "
-                             "two-level 8x8 + 4x4 place feature"),
+                             "two-level 8x8 + 4x4 place feature, "
+                             "MixStyle cross-survey feature-statistic mixing after trunk "
+                             "blocks 1/3/6 (train only)"),
+        "mixstyle": {"after_blocks": list(MIXSTYLE_AFTER), "p": MIXSTYLE_P,
+                     "alpha": MIXSTYLE_ALPHA},
         "augmentation": AUG,
         "captures": names,
         "positions_per_chunk": pos_per_chunk,

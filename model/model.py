@@ -80,6 +80,19 @@ ReLU), is GAP-pooled, and the two halves are concatenated into the same
 head and offset head. All eleven pretrained blocks are fine-tuned at
 TRUNK_LR_MULT; the two lifts train at the head LR.
 
+CROSS-SURVEY STYLE MIXING (capture-holdout era, experiment 14): a
+parameter-free MixStyle module (Zhou et al., ICLR 2021) runs inside
+Member.embed() after trunk blocks features[1], features[3] and features[6]
+(16x32x32, 24x16x16, 40x8x8 at 128 px: the early/mid levels whose per-channel
+mean/std encode photographic 'style'). In training mode, with probability
+MIXSTYLE_P = 0.5 per batch per insertion point, each instance's per-channel
+spatial mean and std (detached) are replaced by a convex mix of its own and a
+partner's, lambda ~ Beta(0.1, 0.1) per instance, partner = a random
+permutation of the survey-mixed batch, so a place is shown wearing styles
+interpolated between the training surveys while its spatial layout is kept.
+In eval mode (and so in the ONNX export and the survey diagnostic) it is the
+identity: the deployed graph is unchanged.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -109,6 +122,10 @@ IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
 COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
+MIXSTYLE_AFTER = (1, 3, 6)  # indices into trunk (features[i]) after which MixStyle runs
+MIXSTYLE_P = 0.5      # per-batch, per-insertion-point probability of mixing
+MIXSTYLE_ALPHA = 0.1  # Beta(alpha, alpha) for the per-instance mixing weight
+MIXSTYLE_EPS = 1e-6
 
 
 def grid_dims(meta: dict) -> tuple[int, int]:
@@ -124,6 +141,35 @@ def build_pretrained_trunk() -> nn.Sequential:
     sd = torch.load(PRETRAINED_TRUNK_PATH, map_location="cpu", weights_only=True)
     trunk.load_state_dict({k[len("features."):]: v for k, v in sd.items()}, strict=True)
     return trunk
+
+
+class MixStyle(nn.Module):
+    """Training-only feature-statistic mixing (no parameters, no buffers).
+    Identity in eval mode, so it never appears in the exported graph."""
+
+    def __init__(self, p=MIXSTYLE_P, alpha=MIXSTYLE_ALPHA, eps=MIXSTYLE_EPS):
+        super().__init__()
+        self.p = p
+        self.alpha = alpha
+        self.eps = eps
+
+    def forward(self, x):
+        # CPU RNG draw once per batch per insertion point: no device sync.
+        if not self.training or x.shape[0] < 2 or torch.rand(1).item() > self.p:
+            return x
+        B = x.shape[0]
+        mu = x.mean(dim=(2, 3), keepdim=True)
+        var = x.var(dim=(2, 3), keepdim=True)
+        sig = (var + self.eps).sqrt()
+        mu, sig = mu.detach(), sig.detach()
+        x_norm = (x - mu) / sig
+        # Sample on CPU then move (MPS lacks some Beta kernels).
+        lmda = torch.distributions.Beta(torch.tensor(self.alpha), torch.tensor(self.alpha)) \
+            .sample((B, 1, 1, 1)).to(device=x.device, dtype=x.dtype)
+        perm = torch.randperm(B, device=x.device)
+        mu_mix = mu * lmda + mu[perm] * (1 - lmda)
+        sig_mix = sig * lmda + sig[perm] * (1 - lmda)
+        return x_norm * sig_mix + mu_mix
 
 
 class Member(nn.Module):
@@ -148,6 +194,8 @@ class Member(nn.Module):
         self.prototypes = nn.Parameter(torch.empty(n_cells, EMBED_DIM))
         nn.init.normal_(self.prototypes, std=0.01)
         self.off_head = nn.Linear(EMBED_DIM, 2)
+        # Stateless, parameter-free; deliberately NOT inside self.trunk.
+        self.mixstyle = MixStyle()
 
     def trunk_parameters(self):
         """Pretrained trunk parameters (fine-tuned at TRUNK_LR_MULT x LR)."""
@@ -162,8 +210,17 @@ class Member(nn.Module):
         """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
         feature [B, D]. x is float [0,1]; ImageNet normalisation is in-graph."""
         xn = (x - self.in_mean) / self.in_std
-        h_mid = self.trunk[:TRUNK_MID_BLOCKS](xn)       # [B, 48, 8, 8]
-        h_deep = self.trunk[TRUNK_MID_BLOCKS:](h_mid)   # [B, 96, 4, 4]
+        # Blocks run one by one so MixStyle (train-only; identity in eval) can
+        # follow features[1]/[3]/[6]. h_mid is taken after block 8 as before.
+        h = xn
+        h_mid = None
+        for i, blk in enumerate(self.trunk):
+            h = blk(h)
+            if i in MIXSTYLE_AFTER:
+                h = self.mixstyle(h)
+            if i == TRUNK_MID_BLOCKS - 1:
+                h_mid = h                               # [B, 48, 8, 8]
+        h_deep = h                                      # [B, 96, 4, 4]
         f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
                        self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]
         e =F.normalize(self.embed_bn(f), dim=1)
