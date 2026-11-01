@@ -2199,8 +2199,8 @@ def history_rows_html(hist_rows, eras):
             why = ("Blind Hamburg holdout check. Logged for honesty, never "
                    "allowed to drive keep/revert.")
         elif cls == "fail":
-            why = ("Failed a deployment gate: too large, too slow, or it "
-                   "abstained on too many frames to be scoreable.")
+            why = ("Failed outright: training or scoring crashed, it broke a "
+                   "deployment limit, or it never produced a single usable fix.")
         elif r["kept"]:
             why = ("The loop kept this — it beat the running best under the "
                    "metric then in force.")
@@ -2919,7 +2919,7 @@ def _fail_detail(e):
     gate_fails = [a.get("gates", {}).get("failed") for a in areas
                   if a.get("gates", {}).get("failed")]
     if gate_fails:
-        long_map = {"model too large": "the exported model is too big for the ESP32-P4's memory (>4 MiB)",
+        long_map = {"model too large": "the exported model is too big for the ESP32-P4's memory (over the size limit in force at the time: 4 MiB fp32 until 2026-11-01, now 32 MiB fp32 ≈ 8 MiB int8)",
                     "missing model": "no usable model file was produced to load",
                     "latency over proxy budget": "a single inference is slower than the flight-time budget (>250 ms proxy)"}
         short_map = {"model too large": "too big for the ESP32-P4",
@@ -3047,10 +3047,13 @@ memorized vantages, so expect it to read far worse than the headline number.
 That gap is information, not failure.</dd>
 <dt>gated fail (×)</dt><dd>The §6 score also enforces the aircraft's hard
 limits: the exported model must fit the ESP32-P4 flight computer
-(<b>≤ 4 MiB</b>) and answer within the latency budget (≤ 250 ms host proxy),
-and it may not dodge hard cases by refusing to answer (a cell where it
-abstains on &gt; 80% of frames counts as failed). Any violation scores the
-whole experiment as failed regardless of accuracy.</dd>
+(<b>≤ 32 MiB</b> exported, about 8 MiB once compressed to 8-bit for the
+chip; 4 MiB until 1 November 2026) and answer within the latency budget
+(≤ 250 ms host proxy), and it must produce at least one usable fix (a model
+that only ever stays silent or is always wrong counts as failed; until
+1 November 2026 this was a cruder rule that failed any cell abstaining on
+&gt; 80% of frames). Any violation scores the whole experiment as failed
+regardless of accuracy.</dd>
 <dt>rejected</dt><dd>Never trained at all. After a losing streak, the loop
 demands a genuine pivot — every non-frozen part of the design must change,
 not just the one piece that's gone stalest. If the proposed design doesn't
@@ -3669,8 +3672,8 @@ Prignitz actually poses, and running both at once would confound
 them.</p></div>
 
 <div class="nb-row"><span class="nb-time">&nbsp;</span>
-<p class="nb-text"><b>That hour turned up a real measurement bug, and it is
-still open.</b> Checking whether a shared model would fit the ESP32&#8209;P4
+<p class="nb-text"><b>That hour turned up a real measurement bug, left open
+until 1 November (issue #8).</b> Checking whether a shared model would fit the ESP32&#8209;P4
 gave 4.88&nbsp;MB against a 4&nbsp;MB ceiling &mdash; an apparent blocker. It
 wasn&rsquo;t. <code>MODEL_MAX_BYTES</code> was set in the <i>bootstrap
 commit</i> and never revisited &mdash; <code>git log -S</code> returns exactly
@@ -4700,7 +4703,7 @@ def contract_svg():
     # deployment gate note, hanging off the box like a margin annotation
     b.append(txt(972, by + bh + 16,
                  "whatever fills the box must export to one ONNX file "
-                 "≤ 4 MiB and answer in ≤ 250 ms", 9, FAINT, anchor="end",
+                 "≤ 32 MiB (≈ 8 MiB int8) and answer in ≤ 250 ms", 9, FAINT, anchor="end",
                  style="font-style='italic'"))
     # frozen output
     b.append(harrow(bx + bw + 6, 796, IC))
@@ -5750,7 +5753,8 @@ def render():
                       if e["kept"] and e["kind"] != "holdout_check"
                       and e["model_bytes_max"]), None)
     size_note = (f"currently <b class='num'>{best_size/1024:,.0f} KB</b>, hard limit "
-                 f"<b class='num'>4 MiB</b>" if best_size else "hard limit <b>4 MiB</b>")
+                 f"<b class='num'>32 MiB</b> (≈ 8 MiB int8 on the chip)" if best_size
+                 else "hard limit <b>32 MiB</b> (≈ 8 MiB int8 on the chip)")
     if best is None:
         status_line = "No scoreable model yet."
     elif best <= 0.05:
