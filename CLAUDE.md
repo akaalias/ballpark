@@ -102,6 +102,24 @@ architecture on three captures and scores on the fourth. Expect it to be bad
 on the held-out photograph and near 0.04 on the training ones; the gap
 between those two numbers is what the loop is now asked to close.
 
+### NEXT ERA (planned, not started): altitude range 25-100 m — issue #10
+
+Decided by Alexis on 2026-11-01, to open **only after the capture-holdout era
+reaches its target**. Today every frame is a 128 m footprint at 1 m/px
+(≈ 100 m AGL); the next era asks for usable fixes from **25 to 100 m AGL**.
+
+- **The model may be told its altitude** (barometric height, no GPS):
+  `estimate_position(frame, altitude_m) -> (lat, lon, confidence)`. How it
+  uses it is the loop's call.
+- **Lens field of view: research first** (P4-compatible low-light MIPI
+  modules, lenses, weight, footprint at 25 m and 100 m), then fix one FOV
+  for the era.
+- **Altitude is scored:** eval views carry a deterministic altitude across
+  25-100 m; mission score per altitude band, primary = worst band. A new
+  ruler, hence a new era.
+- Data is available: all four Berlin captures are 20 cm/px native (we
+  resample to 1 m today); a 25 m frame needs ~0.25 m/px, ~16x the raster.
+
 ---
 
 ## THE PRIGNITZ DETOUR — opened and rewound, 2026-07-31 → 08-01
