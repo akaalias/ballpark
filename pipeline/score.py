@@ -28,15 +28,23 @@ optimized. If a future change makes the score improve while usable_fix_rate
 does not, the metric is wrong again — that is the check to run.
 
 A tiny tie-break term (TIE_BREAK_W, bounded strictly below 1/n_eval) separates
-candidates the product metric scores identically, so the loop still has signal
-at 0% usable. It can never outrank a real difference in usable/false rates.
+candidates the product metric scores identically. It can never outrank a real
+difference in usable/false rates.
 
 Gates folded into the scalar (§6): a per-area exported ONNX must fit the
 ESP32-P4 envelope — file size <= MODEL_MAX_BYTES and single-thread host CPU
 latency <= LATENCY_MAX_MS (a documented *proxy* for on-target latency, not a
-measurement of it). Coverage rule: predictions with confidence < CONF_THRESHOLD
-are abstentions; a (area, bucket) cell with coverage < MIN_COVERAGE scores
-FAIL_SCORE — a model cannot pass by abstaining its way out.
+measurement of it). Predictions with confidence < CONF_THRESHOLD are
+abstentions. Usable-fix rule: a (area, bucket) cell with NO usable fix scores
+FAIL_SCORE, so a silent or useless model cannot win by abstaining — silence
+scores 1.0, which would otherwise beat any champion that is worse than silence.
+
+That rule replaced a coverage floor (cell coverage < 0.2 -> FAIL) on
+2026-11-01, issue #5. The floor dated from the bootstrap, when the score was an
+error statistic that abstention could game. The mission score already charges
+for every abstention, so the floor only punished honest abstention: it failed
+capture-holdout experiment 11 (coverage 17.75%, the era's best usable AND
+lowest false-fix rate) and July's experiment 26 the same way.
 
 Holdout (§5): scoring hamburg requires --holdout, writes to a separate output,
 and must never feed the keep/revert decision (enforced in loop.sh).
@@ -72,7 +80,7 @@ from pipeline.dataset import error_meters, extract_crop, list_crops
 MODEL_MAX_BYTES = 4 * 1024 * 1024   # ESP32-P4 flash/PSRAM envelope per model
 LATENCY_MAX_MS = 250.0              # single-thread host-CPU proxy budget
 CONF_THRESHOLD = 0.3
-MIN_COVERAGE = 0.2
+MIN_USABLE_FIXES = 1                # a cell needs at least this many usable fixes, else FAIL
 FAIL_SCORE = 1e9
 MAX_EVAL_CROPS_PER_BUCKET = 400     # deterministic subsample cap for speed
 TARGET_M = 100.0                    # a fix within this radius is USABLE (main branch: 20 m)
@@ -203,7 +211,7 @@ def score_area(area: str, model_dir: Path, data_dir: Path, heatmap_dir: Path | N
             "p10_error_m": round(float(np.percentile(ea, 10)), 2) if errs else None,
             "p25_error_m": round(float(np.percentile(ea, 25)), 2) if errs else None,
         }
-        cell["score"] = FAIL_SCORE if coverage < MIN_COVERAGE else cell["mission_score"]
+        cell["score"] = FAIL_SCORE if n_usable < MIN_USABLE_FIXES else cell["mission_score"]
         return cell
 
     for bucket, b in eval_b.items():

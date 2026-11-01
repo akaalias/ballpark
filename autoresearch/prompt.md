@@ -104,8 +104,10 @@ correction. Per frame exactly three things can happen:
   accurate.** Converting a confident-but-wrong frame into an abstention
   improves the score. Converting an abstention into a correct confident fix
   improves it twice as much. Both are real progress; design for either.
-* A cell whose coverage falls below 0.2 scores FAIL — you cannot pass by
-  abstaining on everything.
+* A cell with **no usable fix at all** scores FAIL — you cannot pass by
+  abstaining on everything. There is no coverage floor: a model that answers
+  on only a small share of frames but is right when it answers is exactly
+  what this score rewards.
 
 **Do not optimize an error statistic.** Median, geometric mean, p10, p25 are
 all still logged, and you may read them to understand *why* something worked,
