@@ -55,3 +55,18 @@ Interrupted — discarding the in-flight experiment (all completed
 experiments are already committed/logged). Safe to restart with:
   ./autoresearch/loop.sh
 Working tree dirty — committing pending changes as a pre-loop checkpoint.
+=== Experiment 13 (12/15 recorded)  run=20261101_173548_experiment13  parent=d10b5e9ebef517e8b8addcae58744bd6247b8688 ===
+agents finished (design: claude-opus-5-5 130s, impl: claude-opus-5-5 134s)
+--- train berlin:
+[aws] machine i-0f9f9793286544f01 terminated after 20.7 min (spot, ~$0.22)
+[aws] done
+PRIMARY worst-case mission score: 0.4352 (0=every frame a usable fix, 1=abstains everywhere, 2=confidently wrong everywhere)
+samples -> runs/20261101_173548_experiment13/samples
+KEPT: mission score 0.435206 (improved from 0.560226)
+13
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (13 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (72 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (96 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
