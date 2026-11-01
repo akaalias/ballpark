@@ -412,8 +412,13 @@ def main():
                 rows.append(row)
                 continue
 
-            # --- a gated fail had no deployable model then and has none now ---
-            if era_metric is not None and era_metric >= FAIL:
+            # --- a gated fail with no surviving model stays gated. One whose
+            # model survives is re-measured below like any other: until
+            # 2026-11-01 (issue #5) the scorer also failed models for low
+            # coverage alone, and those models are perfectly scoreable.
+            models = REPO_ROOT / (d.get("artifacts_dir") or "") / "models"
+            was_gated = era_metric is not None and era_metric >= FAIL
+            if was_gated and not (models / "berlin.onnx").exists():
                 row["provenance"] = "gated"
                 rows.append(row)
                 continue
@@ -449,6 +454,14 @@ def main():
                     print(f"   #{d['id']:>3}  {row['mission_score']:.4f}  "
                           f"usable={row['usable_fix_rate']:.3f} "
                           f"false={row['false_fix_rate']:.3f}  {d['title'][:48]}")
+                elif was_gated:
+                    row["provenance"] = "gated"     # its model no longer scores
+                rows.append(row)
+                continue
+
+            # a gated fail whose model cannot be re-measured has no rates to derive
+            if was_gated:
+                row["provenance"] = "gated"
                 rows.append(row)
                 continue
 

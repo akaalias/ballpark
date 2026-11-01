@@ -2075,7 +2075,7 @@ def history_chart_svg(rows, eras):
         "rescored": "re-scored today from its exported model",
         "native": "measured natively — this era's own ruler",
         "derived": "rates recovered from the logged record (model files gone)",
-        "gated": "failed a deployment gate or never trained",
+        "gated": "failed: crashed, over the deployment budget, or not one usable fix",
         "incomparable": "ran on 10 m/px imagery — not answerable on today's eval set",
         "unrecoverable": "model and rates both lost",
         "holdout": "blind Hamburg holdout check — a different area, so no Berlin score exists",
@@ -2084,6 +2084,7 @@ def history_chart_svg(rows, eras):
         v, prov = r["mission_score"], r["provenance"]
         cx = x(i)
         verdict = ("holdout check" if r["kind"] == "holdout_check"
+                   else "promoted after a scorer fix" if "promoted" in (r.get("conclusion") or "")[:40]
                    else "kept at the time" if r["kept"] else "discarded at the time")
         head = f"<b>{esc(r['era_label'])} #{r['src_id']} — {esc(r['title'] or '')}</b>"
         if v is not None:
@@ -2092,8 +2093,8 @@ def history_chart_svg(rows, eras):
                       f"{(r['false_fix_rate'] or 0)*100:.1f}%")
         else:
             detail = prov_note[prov]
-        tip = esc(f"{head}<span class='t-note'>{esc(detail)} · {verdict}"
-                  f"<br>{esc(prov_note[prov])}</span>")
+        second = f"<br>{esc(prov_note[prov])}" if v is not None else ""
+        tip = esc(f"{head}<span class='t-note'>{esc(detail)} · {verdict}{second}</span>")
         # Every era has a row in the table below, so every mark links to one.
         # The id must match that row's DOM id exactly: the current era keeps
         # bare numbers (older deep links point at those), earlier eras are
@@ -2299,8 +2300,10 @@ HIST_PROV = {
                "hit-rate this era's scorer logged at the time. The eval set "
                "and target were already identical to today's, so this is a "
                "derivation rather than an estimate.",
-    "gated": "It failed a deployment gate, so there was no working model to "
-             "score then and none to re-score now.",
+    "gated": "It failed outright and left no scoreable result: training or "
+             "scoring crashed, the model broke a deployment limit, or it never "
+             "produced a single usable fix. (Models failed only by the old "
+             "coverage floor, retired 2026-11-01, are re-scored instead.)",
     "incomparable": "It ran on 10 m/px imagery, before the switch to 1 m/px "
                     "orthophotos. Feeding it today's crops would not be asking "
                     "it the same question, so it is left unscored rather than "
@@ -2928,11 +2931,18 @@ def _fail_detail(e):
                 f"The model trained and scored, but it broke a hard aircraft limit: {longs}. A model "
                 "that can't physically run on the UAV is failed regardless of how accurate it is, so "
                 "it was rolled back.")
-    return ("abstained on too many frames in a cell",
-            "The model trained, but in at least one area × lighting combination it refused to answer on "
-            "more than the allowed share of frames — and a model isn't allowed to pass by abstaining its "
-            "way out of the hard cases. That cell is scored as a failure, which fails the whole "
-            "experiment, so it was rolled back.")
+    cells = [c for a in areas for c in (a.get("buckets") or {}).values()]
+    if cells and any((c.get("usable_fix_rate") or 0) == 0 for c in cells):
+        return ("not one usable fix",
+                "The model trained, but on the held-out photograph it did not produce a single usable "
+                "fix — it either stayed silent on every frame or was wrong every time it answered. "
+                "Silence alone scores 1.0, so a model like this could otherwise win just by saying "
+                "nothing; it is scored as a failure instead, and was rolled back.")
+    return ("abstained on too many frames (old coverage floor)",
+            "The model trained, but it answered on fewer than 20% of frames in some cell, and the "
+            "scorer then failed any such cell outright. That coverage floor was retired on "
+            "2026-11-01 because the mission score already charges for every abstention; models it "
+            "failed are re-scored on the history pages.")
 
 
 def status_reason(e):

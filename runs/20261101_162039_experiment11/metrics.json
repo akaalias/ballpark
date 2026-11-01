@@ -16,7 +16,7 @@
           "mean_error_m": 993.19,
           "p10_error_m": 17.92,
           "p25_error_m": 29.89,
-          "score": 1000000000.0,
+          "score": 0.96288,
           "capture": "truedop_2024",
           "lighting": "asis"
         }
@@ -87,6 +87,6 @@
       }
     }
   ],
-  "primary_mission_score": 1000000000.0,
+  "primary_mission_score": 0.96288,
   "target_m": 100.0
 }
