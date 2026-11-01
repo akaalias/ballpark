@@ -569,9 +569,10 @@ def era_panel(est):
     name, b, diag = rates(era.get("last_metrics") or {})
     if b:
         lines.append(Text(""))
-        lines.append(Text(f"last recorded (experiment {era.get('last_id')}) — score · usable · false fix", style=MUTED))
-        t = Table.grid(padding=(0, 2))
-        t.add_column(style=MUTED); t.add_column(justify="right"); t.add_column(justify="right"); t.add_column(justify="right")
+        # labels are the grid's own header row, so each sits over its column
+        t = Table(box=None, show_header=True, header_style=MUTED, padding=(0, 0, 0, 2), pad_edge=False)
+        t.add_column(f"last recorded (experiment {era.get('last_id')})", style=MUTED)
+        t.add_column("score", justify="right"); t.add_column("usable", justify="right"); t.add_column("false fix", justify="right")
         t.add_row(Text(f"{name}  (held out)", style=ACCENT + " bold"), Text(f"{b['mission_score']:.3f}", "bold"),
                   f"{(b.get('usable_fix_rate') or 0) * 100:.1f}%", f"{(b.get('false_fix_rate') or 0) * 100:.1f}%")
         for cap, d in diag.items():
