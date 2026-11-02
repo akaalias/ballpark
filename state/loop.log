@@ -173,3 +173,21 @@ wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
 WARNING: file(s) over 25MB excluded from the commit (moved to state/quarantine/20261101_223250_experiment19, not pushed):
 runs/20261101_223250_experiment19/models/berlin.onnx
+Uploading LFS objects: 100% (4/4), 21 MB | 548 KB/s, done.
+=== Experiment 20 (19/100 recorded)  run=20261102_010051_experiment20  parent=0d22d24b71460d3e09bae321039ac93eccdd4961 ===
+agents finished (design: claude-opus-5-5 121s, impl: claude-opus-5-5 68s)
+--- train berlin:
+[aws] machine i-0d4416e415f026c98 terminated after 116.2 min (spot, ~$1.07)
+[aws] done
+PRIMARY worst-case mission score: 0.0777 (0=every frame a usable fix, 1=abstains everywhere, 2=confidently wrong everywhere)
+samples -> runs/20261102_010051_experiment20/samples
+KEPT: mission score 0.077671 (improved from 0.085172)
+20
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (20 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (79 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (103 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
+WARNING: file(s) over 25MB excluded from the commit (moved to state/quarantine/20261102_010051_experiment20, not pushed):
+runs/20261102_010051_experiment20/models/berlin.onnx
