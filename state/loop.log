@@ -191,3 +191,18 @@ wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
 WARNING: file(s) over 25MB excluded from the commit (moved to state/quarantine/20261102_010051_experiment20, not pushed):
 runs/20261102_010051_experiment20/models/berlin.onnx
+Uploading LFS objects: 100% (2/2), 5.1 MB | 617 KB/s, done.
+=== Experiment 21 (20/100 recorded)  run=20261102_030305_experiment21  parent=3e9d902e15c101b6878eb352dc92f60557404a40 ===
+agents finished (design: claude-opus-5-5 119s, impl: claude-opus-5-5 90s)
+--- train berlin:
+    raise EndpointConnectionError(endpoint_url=request.url, error=e)
+botocore.exceptions.EndpointConnectionError: Could not connect to the endpoint URL: "https://ec2.eu-central-1.amazonaws.com/"
+samples -> runs/20261102_030305_experiment21/samples
+REVERTED: mission score 1000000000.0 (best remains 0.077671)
+21
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (21 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (80 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (104 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
