@@ -106,6 +106,19 @@ features[7] (320x7x7), each lifted to 56 and concatenated to 112; MixStyle
 runs after stages 2/3/4 (stride 4/8/16). The training loop, optimiser groups,
 schedule, augmentation and targets are unchanged.
 
+WEIGHT AVERAGING (experiment 20): from the first step of epoch epochs//2 + 1
+(1-based) to the end of training, a WeightAverager keeps a uniform running
+mean of every model PARAMETER, updated every AVG_EVERY optimiser steps
+(SWA/SWAD-style dense averaging; Python-int counters, foreach lerp, no host
+syncs). After the last epoch the averaged parameters are loaded into the
+model, every BatchNorm layer's running statistics are reset and re-measured
+(cumulative, momentum=None) by recalibrate_bn() over BN_RECAL_BATCHES
+augmented paired-survey training batches in train mode with no grad, and THAT
+model is exported. Buffers are re-measured, never averaged. The per-epoch
+survey_diag still measures the last iterate; a final survey_diag on the
+averaged model is logged beside it. Graph, parameter count, losses,
+augmentation, schedule and optimiser are unchanged.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -131,6 +144,8 @@ MID_HW = INPUT_PX // 16   # mid read level spatial size (14 at 224 px)
 DEEP_HW = INPUT_PX // 32  # deep read level spatial size (7 at 224 px)
 CHUNK_SIZE = 4096  # lattice positions extracted at a time (bounds memory)
 BATCH_SIZE = 64
+AVG_EVERY = 4            # optimiser steps between weight snapshots
+BN_RECAL_BATCHES = 400   # augmented training batches used to re-measure BN stats of the averaged model
 # Per-view photometric + sharpness nuisance ranges (training only).
 AUG = dict(blur_p=0.7, blur_sigma_max=1.5, blur_taps=7, exposure=(0.75, 1.30),
            channel_gain=(0.85, 1.15), contrast=(0.6, 1.4),
@@ -292,8 +307,85 @@ def residual_offset_target(model, logits, pos, meta):
         return torch.stack([ru, rv], dim=1)
 
 
+class WeightAverager:
+    """Uniform running mean of every model parameter (never buffers),
+    snapshotted every AVG_EVERY optimiser steps. Counters are Python ints and
+    the update is an on-device foreach lerp, so nothing stalls the GPU queue."""
+
+    def __init__(self, model):
+        self.params = [p for p in model.parameters()]
+        self.avg = None
+        self.n = 0
+        self.step = 0
+
+    def maybe_update(self):
+        self.step += 1
+        if self.step % AVG_EVERY != 0:
+            return
+        with torch.no_grad():
+            if self.avg is None:
+                self.avg = [p.detach().clone() for p in self.params]
+                self.n = 1
+                return
+            self.n += 1
+            cur = [p.detach() for p in self.params]
+            w = 1.0 / self.n
+            try:
+                torch._foreach_lerp_(self.avg, cur, w)
+            except (AttributeError, RuntimeError, NotImplementedError):
+                for a, p in zip(self.avg, cur):
+                    a.lerp_(p, w)
+
+    def copy_to(self, model):
+        with torch.no_grad():
+            for p, a in zip(model.parameters(), self.avg):
+                p.copy_(a)
+
+
+def recalibrate_bn(model, scene, crop_xy, meta, rng, device, n_caps,
+                   pos_per_chunk, n_batches):
+    """Reset and re-measure every BatchNorm layer's running statistics for the
+    current (averaged) weights: train mode (batch stats, MixStyle and
+    stochastic depth as in training), no grad, cumulative averaging
+    (momentum=None), over n_batches augmented paired-survey training batches
+    drawn exactly like run_epoch. No parameter is touched. Returns the number
+    of batches actually used."""
+    bns = [m for m in model.modules()
+           if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d))]
+    saved = [m.momentum for m in bns]
+    for m in bns:
+        m.reset_running_stats()
+        m.momentum = None
+    model.train()
+    done = 0
+    order = rng.permutation(len(crop_xy))
+    with torch.no_grad():
+        for start in range(0, len(order), pos_per_chunk):
+            if done >= n_batches:
+                break
+            views = chunk_views(meta, crop_xy, order[start:start + pos_per_chunk],
+                                rng, n_caps)
+            cx, cy, ang, _cell_idx, _pos, cap_idx = (t.to(device) for t in views)
+            n = len(cx)
+            perm = torch.randperm(n).to(device)
+            for i in range(0, n, BATCH_SIZE):
+                if done >= n_batches:
+                    break
+                idx = perm[i:i + BATCH_SIZE]
+                xb0 = gpu_crops(scene, cap_idx[idx], cx[idx], cy[idx], ang[idx])
+                for member in model.members:
+                    xb_k = augment_views(xb0)
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16,
+                                        enabled=(device == "cuda")):
+                        member(xb_k)
+                done += 1
+    for m, mom in zip(bns, saved):
+        m.momentum = mom
+    return done
+
+
 def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
-              pos_per_chunk, gw, gh, max_chunks=None):
+              pos_per_chunk, gw, gh, max_chunks=None, averager=None):
     """One full pass over the whole lattice x every capture, shuffled, fresh
     headings; each chunk holds its positions in ALL captures. Running stats
     stay on the device and are read once at the end, so the CPU never waits
@@ -337,6 +429,8 @@ def run_epoch(model, opt, meta, scene, crop_xy, rng, device, n_caps,
                 loss = loss + loss_fn(cos_k, off_k, soft_t, off_t_k)
                 member_logits.append(logits_k)
             opt.zero_grad(); loss.backward(); opt.step()
+            if averager is not None:
+                averager.maybe_update()
             with torch.no_grad():
                 loss_sum += loss.detach() * B
                 member_args = [l.argmax(dim=1) for l in member_logits]
@@ -458,8 +552,11 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     # the run (head 1e-3 -> 1e-4, trunk 1e-4 -> 1e-5), stepped once per epoch.
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda e: 0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * e / epochs)))
+    averager = WeightAverager(model)
+    avg_start = epochs // 2   # 0-based; epoch epochs//2 + 1 (1-based)
     print(f"[{area}] {len(crops)} lattice positions, {model.n_cells} cells, "
-          f"device={device}")
+          f"device={device}, weight averaging from epoch {avg_start + 1} "
+          f"every {AVG_EVERY} steps")
     # All training captures live on the device for the whole run (uint8,
     # ~0.43 GB for Berlin); views are cut from them per mini-batch.
     scene = torch.from_numpy(np.stack(imgs)).permute(0, 3, 1, 2).contiguous().to(device)
@@ -475,7 +572,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     diag = {}
     for epoch in range(epochs):
         stats = run_epoch(model, opt, meta, scene, crop_xy, rng, device,
-                          n_caps, pos_per_chunk, gw, gh)
+                          n_caps, pos_per_chunk, gw, gh,
+                          averager=(averager if epoch >= avg_start else None))
         sched.step()
         diag = survey_diag(model, scene, crop_xy, meta, device, n_caps, diag_idx)
         seen = stats["seen"]
@@ -494,6 +592,29 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
               f"xs_cos_same={diag['xs_cos_same']} xs_cos_diff={diag['xs_cos_diff']} "
               f"wpv={diag['wpv']} xsurvey_agree={diag['xsurvey_agree']} "
               f"clean_top1={diag['clean_top1']}", flush=True)
+
+    # Weight averaging: fly the average of the late trajectory, not the last step.
+    last_diag = diag
+    bn_recal_done = 0
+    if averager.avg is None:
+        print(f"[{area}] weight averaging skipped: no snapshots taken "
+              f"(exporting the last iterate)", flush=True)
+        avg_diag = last_diag
+    else:
+        averager.copy_to(model)
+        bn_recal_done = recalibrate_bn(model, scene, crop_xy, meta, rng, device,
+                                       n_caps, pos_per_chunk, BN_RECAL_BATCHES)
+        avg_diag = survey_diag(model, scene, crop_xy, meta, device, n_caps, diag_idx)
+        print(f"[{area}] averaged model: n_snapshots={averager.n} from epoch "
+              f"{avg_start + 1} every {AVG_EVERY} steps, bn_recal_batches={bn_recal_done} "
+              f"xs_cos_same={avg_diag['xs_cos_same']} xs_cos_diff={avg_diag['xs_cos_diff']} "
+              f"wpv={avg_diag['wpv']} xsurvey_agree={avg_diag['xsurvey_agree']} "
+              f"clean_top1={avg_diag['clean_top1']} | last iterate: "
+              f"xs_cos_same={last_diag.get('xs_cos_same')} "
+              f"xs_cos_diff={last_diag.get('xs_cos_diff')} "
+              f"wpv={last_diag.get('wpv')} "
+              f"xsurvey_agree={last_diag.get('xsurvey_agree')} "
+              f"clean_top1={last_diag.get('clean_top1')}", flush=True)
 
     models_dir = out_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
@@ -522,7 +643,9 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "two-level 112->56 (14x14) + 320->56 (7x7) -> 112 place feature, "
                              "MixStyle cross-survey feature-statistic mixing after trunk "
                              "stages 2/3/4 (train only), "
-                             f"frame resized in-graph {CROP_PX}->{INPUT_PX} px before the trunk"),
+                             f"frame resized in-graph {CROP_PX}->{INPUT_PX} px before the trunk, "
+                             "uniform weight average over the second half of training "
+                             "with BN recalibration (exported)"),
         "input_px": INPUT_PX,
         "mixstyle": {"after_blocks": list(MIXSTYLE_AFTER), "p": MIXSTYLE_P,
                      "alpha": MIXSTYLE_ALPHA},
@@ -545,11 +668,22 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                  f"train-only additive margin m={COS_MARGIN} on the tent target"),
         "cos_scale": COS_SCALE,
         "cos_margin": COS_MARGIN,
-        "final_xs_cos_same": diag.get("xs_cos_same"),
-        "final_xs_cos_diff": diag.get("xs_cos_diff"),
-        "final_wpv": diag.get("wpv"),
-        "final_xsurvey_agree": diag.get("xsurvey_agree"),
-        "final_clean_top1": diag.get("clean_top1"),
+        "final_xs_cos_same": avg_diag.get("xs_cos_same"),
+        "final_xs_cos_diff": avg_diag.get("xs_cos_diff"),
+        "final_wpv": avg_diag.get("wpv"),
+        "final_xsurvey_agree": avg_diag.get("xsurvey_agree"),
+        "final_clean_top1": avg_diag.get("clean_top1"),
+        "last_iterate_xs_cos_same": last_diag.get("xs_cos_same"),
+        "last_iterate_wpv": last_diag.get("wpv"),
+        "last_iterate_xsurvey_agree": last_diag.get("xsurvey_agree"),
+        "last_iterate_clean_top1": last_diag.get("clean_top1"),
+        "weight_averaging": {"kind": "uniform SWA/SWAD-style parameter average",
+                             "start_epoch_1based": avg_start + 1,
+                             "every_steps": AVG_EVERY,
+                             "n_snapshots": averager.n,
+                             "bn_recalibration_batches": BN_RECAL_BATCHES,
+                             "bn_recalibration_batches_used": bn_recal_done,
+                             "buffers": "re-measured, not averaged"},
     }
 
 
