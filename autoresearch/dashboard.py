@@ -163,6 +163,9 @@ def median_timings(k=5):
 
 
 EPOCH_RE = re.compile(r"epoch (\d+)/(\d+) loss=([\d.]+) top1=([\d.]+)")
+# A head-only warm-up epoch some designs run before the regular ones (exp 26:
+# "warmup (frozen trunk) 1/1 loss=..."). Shown, but never counted as an epoch.
+WARMUP_RE = re.compile(r"warmup \([^)]*\) (\d+)/(\d+) loss=")
 
 
 def figure_status(rd, ph):
@@ -199,10 +202,22 @@ def train_progress(rd):
     except OSError:
         return None
     k, e, last_epoch = 0, None, None
+    w, wt, started = 0, 0, False
     for ln in lines:
         m = EPOCH_RE.search(ln)
         if m:
             k, e, last_epoch = int(m.group(1)), int(m.group(2)), ln
+        mw = WARMUP_RE.search(ln)
+        if mw:
+            w, wt, last_epoch = int(mw.group(1)), int(mw.group(2)), ln
+        if ln.startswith("[berlin]"):
+            started = True       # the trainer itself is running (data loaded)
+    # What to say before the first regular epoch lands. None = the trainer has
+    # not started yet; the caller then shows the launcher's stage instead.
+    stage = None
+    if started and not k:
+        stage = (f"warm-up {w}/{wt} done · epoch 1 running" if w
+                 else "data loaded · epoch 1 running")
     caps = {}
     if last_epoch:
         mc = re.search(r"top1_by_capture=(\{.*\})", last_epoch)
@@ -212,6 +227,7 @@ def train_progress(rd):
             except Exception:  # noqa: BLE001
                 caps = {}
     return {"done": k, "total": e, "last": lines[-1] if lines else "", "caps": caps,
+            "stage": stage, "warmup": (w, wt),
             "mtime": log.stat().st_mtime if log.exists() else 0}
 
 
@@ -226,8 +242,16 @@ def aws_status(rd):
         if m:
             price = f", ~${float(m.group(5)):.2f}/h" if m.group(5) else ""
             status = f"AWS: {m.group(2)} {m.group(3)} in {m.group(4)}{price} (booting)"
+        elif "no capacity anywhere; waiting" in ln and "launched" not in status:
+            m2 = re.search(r"\((\d+) of (\d+) min waited\)", ln)
+            status = ("AWS: no free GPU in any zone, retrying every few minutes"
+                      + (f" ({m2.group(1)} of {m2.group(2)} min waited)" if m2 else ""))
         elif "no capacity" in ln and "launched" not in status:
             status = "AWS: looking for a free machine (zone full, trying the next)"
+        elif "network lost" in ln:
+            status += " — laptop offline, still waiting"
+        elif "network back" in ln:
+            status = status.replace(" — laptop offline, still waiting", "")
         elif "[box] downloads done" in ln or "[box] torch" in ln:
             status = status.replace("(booting)", "(training)")
         elif "[box] result uploaded" in ln:
@@ -501,7 +525,13 @@ def experiment_panel(tick, est):
             lines.append(row("epochs", bar(tp["done"] / tp["total"], colour=ACCENT_SOFT),
                              (f"  {tp['done']}/{tp['total']}  {mins(ph_el)} so far", "default")))
         else:
-            lines.append(row("epochs", bar(0.0, colour=ACCENT_SOFT), ("  loading the three photographs…", MUTED)))
+            if tp and tp.get("stage"):
+                waiting = tp["stage"]
+            elif training_processes()[2]:
+                waiting = aws_status(rd).replace("AWS: ", "")
+            else:
+                waiting = "loading the three photographs…"
+            lines.append(row("epochs", bar(0.0, colour=ACCENT_SOFT), (f"  {waiting}", MUTED)))
     elif ph in PHASES:
         # Red only for a real overrun (over twice the usual AND 3+ min over):
         # a step running a little long is normal variation, not an alarm.
