@@ -275,3 +275,7 @@ wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index
 wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
 WARNING: file(s) over 25MB excluded from the commit (moved to state/quarantine/20261102_105115_experiment25, not pushed):
 runs/20261102_105115_experiment25/models/berlin.onnx
+Uploading LFS objects: 100% (1/1), 4.9 MB | 349 KB/s, done.
+Graceful stop requested — 25/100 experiments recorded so far.
+Loop finished. Best mission score: 0.077671 — see gallery/index.html
+Working tree dirty — committing pending changes as a pre-loop checkpoint.
