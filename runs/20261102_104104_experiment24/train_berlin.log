@@ -1,0 +1,10 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0ae1b51cd26c93d9f Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261031
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+no capacity for g6.xlarge anywhere in the region
