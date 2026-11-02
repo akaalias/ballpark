@@ -37,6 +37,15 @@ from autoresearch.db import REPO_ROOT, connect
 OUT = REPO_ROOT / "gallery" / "index.html"
 TARGET_M = 100.0  # berlin-slim branch milestone (main-branch target is 20 m — see CLAUDE.md "BRANCH OVERRIDE")
 FAIL = 1e9
+# An experiment the cloud never ran to a result (loop.sh writes its conclusion
+# starting "NOT TESTED"; see is_untested). Same 1e9 sentinel as a gated fail,
+# but no verdict on the idea, so it is worded and drawn apart from one.
+UNTESTED_TIP = "not tested — infrastructure failure, never measured"
+UNTESTED_SHORT = "not tested — the cloud run failed, the idea was never measured"
+UNTESTED_LONG = ("Never measured. The design and code were fine as far as anyone "
+                 "knows, but the cloud run failed before a result came back (no GPU "
+                 "capacity, or the connection to the training machine dropped). It "
+                 "says nothing about the idea, which the loop is free to try again.")
 PATIENCE = 4  # mirrors loop.sh's PATIENCE default; restated here since the
               # gallery only reads the DB, never the shell env the loop ran with
 
@@ -661,6 +670,7 @@ tr.open .caret{transform:rotate(90deg)}
 .st-disc{color:var(--faint)}
 .st-fail{color:var(--accent);font-weight:600}
 .st-rej{color:var(--accent);font-weight:600;font-style:italic}
+.st-untested{color:#9b998c;font-style:italic}
 .st-hold{color:var(--ochre);font-weight:600}
 .cat{color:var(--muted);font:600 11.5px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.05em}
@@ -695,6 +705,7 @@ tr.detail td{background:#fcfbf2;padding:0;border-bottom:1px solid var(--rule)}
 .why-fail{border-left-color:var(--accent);background:#fdf6f4} .why-fail .eb-h{color:var(--accent)}
 .why-disc{border-left-color:var(--muted)} .why-disc .eb-h{color:var(--muted)}
 .why-hold{border-left-color:var(--ochre);background:#fbf7ec} .why-hold .eb-h{color:var(--ochre)}
+.why-untested{border-left-color:#9b998c} .why-untested .eb-h{color:#9b998c}
 /* One-line reason under each log-row title, always visible (airloom-style). */
 .row-why{font-size:11.5px;line-height:1.35;color:var(--faint);font-style:italic;margin-top:2px}
 .row-why.why-rej,.row-why.why-fail{color:var(--accent);font-style:normal}
@@ -1742,14 +1753,19 @@ def chart_svg(exps):
         kind = ("holdout check — logged, never drives keep/revert"
                 if e["kind"] == "holdout_check"
                 else "rejected — never trained" if is_rejected(e)
+                else UNTESTED_TIP if is_untested(e)
                 else "kept" if e["kept"] else "discarded")
         if e.get("is_pivot"):
             kind += " · pivot-directed (patience spent)"
         tip = (f"<b>#{e['id']} {esc(e['title'])}</b>"
-               f"<span class='t-note'>{fmt_m(v)} · {kind} · click to open</span>")
+               f"<span class='t-note'>{'not tested' if is_untested(e) else fmt_m(v)} · {kind} · click to open</span>")
         tip_attr = esc(tip)
         common = f"class='pt' data-id='{e['id']}' data-tip=\"{tip_attr}\""
-        if v >= FAIL:
+        if is_untested(e):
+            # Never measured: a quiet hollow ring, never the red × of a real fail.
+            parts.append(f"<circle {common} cx='{x(i):.1f}' cy='{mt+7}' r='3.5' "
+                         f"fill='none' stroke='#9b998c' stroke-width='1.5'/>")
+        elif v >= FAIL:
             parts.append(f"<text {common} x='{x(i):.1f}' y='{mt+11}' text-anchor='middle' "
                          f"fill='#8c2f1f' font-weight='700' font-size='14'>×</text>")
         elif e["kind"] == "holdout_check":
@@ -1878,6 +1894,8 @@ def merge_live_era(rows, eras):
         em = d.get("primary_metric")
         if d.get("kind") == "holdout_check":
             prov = "holdout"
+        elif is_untested(d):
+            prov = "untested"
         elif em is not None and em >= FAIL:
             prov = "gated"
         else:
@@ -2076,6 +2094,7 @@ def history_chart_svg(rows, eras):
         "native": "measured natively — this era's own ruler",
         "derived": "rates recovered from the logged record (model files gone)",
         "gated": "failed: crashed, over the deployment budget, or not one usable fix",
+        "untested": UNTESTED_TIP,
         "incomparable": "ran on 10 m/px imagery — not answerable on today's eval set",
         "unrecoverable": "model and rates both lost",
         "holdout": "blind Hamburg holdout check — a different area, so no Berlin score exists",
@@ -2084,6 +2103,7 @@ def history_chart_svg(rows, eras):
         v, prov = r["mission_score"], r["provenance"]
         cx = x(i)
         verdict = ("holdout check" if r["kind"] == "holdout_check"
+                   else "discarded without a verdict" if prov == "untested"
                    else "promoted after a scorer fix" if "promoted" in (r.get("conclusion") or "")[:40]
                    else "kept at the time" if r["kept"] else "discarded at the time")
         head = f"<b>{esc(r['era_label'])} #{r['src_id']} — {esc(r['title'] or '')}</b>"
@@ -2110,6 +2130,11 @@ def history_chart_svg(rows, eras):
             p.append(f"<line {common} x1='{cx:.1f}' x2='{cx:.1f}' "
                      f"y1='{mt+ih-7}' y2='{mt+ih}' stroke='#9b998c' "
                      f"stroke-width='1.5' stroke-dasharray='2 2'/>")
+        elif prov == "untested":
+            # Never measured, so no verdict: a quiet hollow ring at the top,
+            # never the red × that means the idea itself failed.
+            p.append(f"<circle {common} cx='{cx:.1f}' cy='{mt+7}' r='3.2' "
+                     f"fill='none' stroke='#9b998c' stroke-width='1.4'/>")
         elif prov == "gated" or v is None:
             p.append(f"<text {common} x='{cx:.1f}' y='{mt+11}' "
                      f"text-anchor='middle' fill='#8c2f1f' font-weight='700' "
@@ -2189,6 +2214,8 @@ def history_rows_html(hist_rows, eras):
             stat, cls = "HOLDOUT", "hold"
         elif prov == "gated":
             stat, cls = "GATED FAIL", "fail"
+        elif prov == "untested":
+            stat, cls = "NOT TESTED", "untested"
         elif prov in ("incomparable", "unrecoverable"):
             stat, cls = "NO SCORE", "kept" if r["kept"] else "disc"
         elif r["kept"]:
@@ -2201,6 +2228,8 @@ def history_rows_html(hist_rows, eras):
         elif cls == "fail":
             why = ("Failed outright: training or scoring crashed, it broke a "
                    "deployment limit, or it never produced a single usable fix.")
+        elif cls == "untested":
+            why = UNTESTED_SHORT
         elif r["kept"]:
             why = ("The loop kept this — it beat the running best under the "
                    "metric then in force.")
@@ -2304,6 +2333,7 @@ HIST_PROV = {
              "scoring crashed, the model broke a deployment limit, or it never "
              "produced a single usable fix. (Models failed only by the old "
              "coverage floor, retired 2026-11-01, are re-scored instead.)",
+    "untested": UNTESTED_LONG,
     "incomparable": "It ran on 10 m/px imagery, before the switch to 1 m/px "
                     "orthophotos. Feeding it today's crops would not be asking "
                     "it the same question, so it is left unscored rather than "
@@ -2861,11 +2891,22 @@ def is_rejected(e):
     return (e.get("conclusion") or "").startswith("REJECTED")
 
 
+def is_untested(e):
+    """An experiment the cloud never ran to a result — no GPU capacity, or
+    the connection to the training machine dropped. loop.sh writes it with
+    the same 1e9 sentinel and kept=0, so like is_rejected() it is detected
+    from the conclusion text, which starts with 'NOT TESTED'. It is not a
+    verdict on the idea and must never be shown as a gated fail."""
+    return (e.get("conclusion") or "").startswith("NOT TESTED")
+
+
 def status_of(e):
     if e["kind"] == "holdout_check":
         return "<span class='st-hold smcp'>holdout</span>"
     if is_rejected(e):
         return "<span class='st-rej smcp'>rejected</span>"
+    if is_untested(e):
+        return f"<span class='st-untested smcp' title='{UNTESTED_TIP}'>not tested</span>"
     if e["primary_metric"] is not None and e["primary_metric"] >= FAIL:
         return "<span class='st-fail smcp'>gated fail</span>"
     if e["kept"]:
@@ -2988,6 +3029,9 @@ def status_reason(e):
                 "claim, so it was rejected before any training — re-tuning, truncating, or wrapping the "
                 "same trunk doesn't count as a pivot.")
 
+    if is_untested(e):
+        return ("untested", UNTESTED_SHORT, UNTESTED_LONG)
+
     if metric is not None and metric >= FAIL:
         short, long = _fail_detail(e)
         return ("fail", short, long)
@@ -3045,6 +3089,10 @@ never optimized</b> — it cannot move keep/revert. Its only job is to show
 whether the model has real spatial structure or is just a lookup table over
 memorized vantages, so expect it to read far worse than the headline number.
 That gap is information, not failure.</dd>
+<dt>not tested (○)</dt><dd>Never measured. The design and code were fine as
+far as anyone knows, but the cloud run failed before a result came back (no GPU
+capacity, or the connection to the training machine dropped). It says nothing
+about the idea, which the loop is free to try again.</dd>
 <dt>gated fail (×)</dt><dd>The §6 score also enforces the aircraft's hard
 limits: the exported model must fit the ESP32-P4 flight computer
 (<b>≤ 32 MiB</b> exported, about 8 MiB once compressed to 8-bit for the
@@ -4744,6 +4792,8 @@ def paths_status(e, is_current):
     v = e.get("mission_score") if scored_now else e.get("primary_metric")
     if is_rejected(e):
         return "<span class='fail'>rejected</span> — never trained"
+    if is_untested(e) or e.get("provenance") == "untested":
+        return "not tested — infrastructure failure, never measured"
     if e.get("provenance") == "gated" or (v is not None and v >= FAIL):
         return "<span class='fail'>gated fail</span> — reverted"
     if v is None:
@@ -5303,6 +5353,7 @@ LINEAGE_CSS = """
 #lin .nk{fill:var(--ink)}
 #lin .ndd{fill:#9b998c}
 #lin .nf{fill:var(--accent)}
+#lin .nt{fill:var(--paper);stroke:#9b998c;stroke-width:1.4}
 #lin .nh{fill:var(--paper);stroke:#8a6a1e;stroke-width:1.6}
 #lin .np{fill:none;stroke:#8a6a1e;stroke-width:1.5}
 #lin .nu{stroke:#9b998c;stroke-width:1.5;stroke-dasharray:2 2;fill:none}
@@ -5358,6 +5409,7 @@ LINEAGE_JS = r"""
     native: "measured on this era's own ruler",
     derived: "rates recovered from the logged record",
     gated: "failed a deployment gate",
+    untested: "not tested — infrastructure failure, never measured",
     incomparable: "ran on 10 m/px imagery — not on this ruler",
     unrecoverable: "model and rates both lost",
     holdout: "blind Hamburg holdout — a different area",
@@ -5414,6 +5466,7 @@ LINEAGE_JS = r"""
   nodes.forEach((nd, i) => {
     const x = xFor(i).toFixed(1);
     const cls = nd.kind === "failed" || nd.kind === "rejected" ? "nf" : nd.kind === "kept" ? "nk"
+              : nd.kind === "untested" ? "nt"
               : nd.kind === "holdout" ? "nh" : "ndd";
     const r = nd.kind === "kept" ? 4 : nd.kind === "holdout" ? 4 : 3;
     if (nd.kind === "unknown") {
@@ -5493,6 +5546,7 @@ LINEAGE_JS = r"""
   function showPopover(nd){
     const met = nd.kind === "rejected" ? "rejected — never trained"
       : nd.kind === "failed" ? "gated fail"
+      : nd.kind === "untested" ? provNote.untested
       : nd.kind === "unknown" ? (provNote[nd.prov] || "no score")
       : (fmtScore(nd.metric) || "—") + (nd.kind === "holdout" ? " · blind holdout" : "");
     const rates = (nd.usable != null)
@@ -5561,6 +5615,8 @@ def render_lineage(exps):
                 kind = "holdout"
             elif prov == "gated":
                 kind = "failed"
+            elif prov == "untested":
+                kind = "untested"
             elif prov in ("incomparable", "unrecoverable"):
                 kind = "unknown"
             elif r["kept"]:
@@ -5598,6 +5654,8 @@ def render_lineage(exps):
                 kind = "holdout"
             elif is_rejected(e):
                 kind = "rejected"
+            elif is_untested(e):
+                kind = "untested"
             elif gated:
                 kind = "failed"
             elif e["kept"]:
@@ -5738,7 +5796,10 @@ def render():
             f"{n_by.get('derived', 0)} had their run artifacts deleted and have "
             f"their usable- and false-fix rates recovered arithmetically from the "
             f"logged record; {n_by.get('gated', 0)} failed a deployment gate and "
-            f"had no working model to score, then or now. Nothing was converted "
+            f"had no working model to score, then or now"
+            + (f"; {n_by['untested']} were never measured because the cloud "
+               f"run failed (hollow rings at the top)" if n_by.get("untested") else "")
+            + f". Nothing was converted "
             f"by a fudge factor. "
             f"<b>Black means a new best on today&rsquo;s ruler</b> &mdash; the "
             f"dot that lowered the step line. The step line is the best mission "
@@ -5843,7 +5904,7 @@ def render():
   <span class="mono" style="color:var(--faint)"> {esc(e['git_commit'][:8])}</span>
   <div class="row-why why-{sr_kind}">{esc(sr_short)}</div></td>
 <td><span class="cat">{esc(e['category'] or '—')}</span>{pivot_tag}</td>
-<td class="num">{fmt_score(e['primary_metric'])}</td>
+<td class="num">{'not tested' if is_untested(e) else fmt_score(e['primary_metric'])}</td>
 <td class="num">{fmt_dur(e.get('duration_s'))}</td>
 <td class="num">{cost_cell(hist_by_id.get(e['id']))}</td>
 <td>{status_of(e)}</td></tr>""")
@@ -5855,7 +5916,8 @@ def render():
         blocks.append(cost_block(hist_by_id.get(e["id"])))
         _why_head = {"kept": "Why it's the new best", "rej": "Why it was rejected",
                      "fail": "Why it failed the gate", "disc": "Why it was discarded",
-                     "hold": "What this holdout check is"}.get(sr_kind, "Why this status")
+                     "hold": "What this holdout check is",
+                     "untested": "Why there is no result"}.get(sr_kind, "Why this status")
         blocks.append(f"<div class='eb eb-why why-{sr_kind}'><div class='eb-h'>{_why_head}</div>"
                       f"<p>{esc(sr_long)}</p></div>")
         for key, cls, label in (("hypothesis", "eb-hyp", "Hypothesis"),

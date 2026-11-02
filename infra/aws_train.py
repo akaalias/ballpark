@@ -6,6 +6,13 @@ Same contract as infra/remote_train.sh and infra/modal_client.py: on success
 <local-out-dir> holds models/<area>.onnx + train_info.json and the exit code
 is 0; anything else is a failed train (loop.sh scores it 1e9). Issue #3.
 
+Two kinds of failure, kept apart (issue #13): the TRAINING failed (the box
+reported a non-zero exit, or ran past the deadline) -> exit 1; or the CLOUD
+failed and no answer about the model exists (no GPU capacity after waiting,
+the connection to AWS lost until the deadline, spot interrupted on every
+attempt) -> exit 75 and <local-out-dir>/infra_failure.txt holding the
+reason, which loop.sh records as NOT TESTED rather than as a refuted idea.
+
 How it works
 - The laptop stays the only git writer. The machine gets a tarball of
   model/ + pipeline/ + areas.yaml and NO git, NO AWS credentials, NO SSH:
@@ -19,11 +26,19 @@ How it works
 - It cannot be forgotten: it shuts itself down (= terminates) when training
   ends, its boot script schedules a hard shutdown at AWS_MAX_MINUTES no
   matter what, and this script terminates it on every exit path.
+- Network drops on the laptop do not kill a job: polling, the result
+  download and the final terminate all retry until the hard deadline (on
+  2026-11-02 a DNS blip discarded a finished model, experiment 21).
+- No capacity is waited out: every zone, spot then on-demand, is retried
+  every AWS_CAPACITY_RETRY_S for up to AWS_CAPACITY_WAIT_MIN before giving up.
 
 Env (all optional): AWS_INSTANCE_TYPE (g6.xlarge), AWS_MAX_MINUTES (150),
 AWS_CODE_REF (pack code from this git commit instead of the working tree),
 AWS_ONDEMAND_FALLBACK (1), AWS_RETRIES (1, re-launch after a spot
-interruption), AWS_AMI (override the Deep Learning AMI lookup).
+interruption), AWS_AMI (override the Deep Learning AMI lookup),
+AWS_CAPACITY_WAIT_MIN (90), AWS_CAPACITY_RETRY_S (300), AWS_FALLBACK_TYPES
+(empty; e.g. "g5.xlarge" to also try other GPU types, in order, when the
+primary type has no capacity — logged, since it changes the hardware).
 Credentials come from .env (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY /
 AWS_DEFAULT_REGION, default eu-central-1).
 """
@@ -44,6 +59,8 @@ sys.path.insert(0, str(REPO))
 import boto3  # noqa: E402
 from botocore.config import Config  # noqa: E402
 from botocore.exceptions import ClientError  # noqa: E402
+from botocore.exceptions import ConnectionError as BotoConnectionError  # noqa: E402
+from botocore.exceptions import HTTPClientError  # noqa: E402
 
 from pipeline.common import DATA_DIR, area_dir, buckets, load_meta  # noqa: E402
 
@@ -53,6 +70,37 @@ ONDEMAND_USD_H = {"g6.xlarge": 1.006, "g4dn.xlarge": 0.658, "g5.xlarge": 1.258,
 CAPACITY_ERRORS = ("InsufficientInstanceCapacity", "SpotMaxPriceTooLow",
                    "MaxSpotInstanceCountExceeded", "Unsupported",
                    "InsufficientCapacity", "capacity-not-available")
+# Laptop-side network trouble (DNS, Wi-Fi, sleep): retry, never give up a job
+# over it. EndpointConnectionError and the timeouts subclass these two.
+NET_ERRORS = (BotoConnectionError, HTTPClientError, OSError)
+INFRA_EXIT = 75          # EX_TEMPFAIL: the cloud failed, the model was not tested
+
+
+class NoCapacity(Exception):
+    pass
+
+
+class InfraFailure(Exception):
+    pass
+
+
+def retry_net(fn, what, deadline, every=20):
+    """Call fn() until it succeeds or deadline (epoch s) passes; network
+    errors are logged once per outage and retried, anything else raises."""
+    down_since = None
+    while True:
+        try:
+            out = fn()
+            if down_since:
+                log(f"network back after {time.time() - down_since:.0f}s ({what})")
+            return out
+        except NET_ERRORS as e:
+            if down_since is None:
+                down_since = time.time()
+                log(f"network error during {what}, retrying: {type(e).__name__}")
+            if time.time() > deadline:
+                raise InfraFailure(f"network lost during {what} until the deadline") from e
+            time.sleep(every)
 
 
 def log(msg):
@@ -270,7 +318,32 @@ def launch(ec2, itype, ami, user_data, tag):
         log(f"launched {inst['InstanceId']} {itype} {market} in {zone}"
             + (f" at ~${price:.3f}/h" if price else ""))
         return inst["InstanceId"], market, price
-    raise SystemExit(f"no capacity for {itype} anywhere in the region")
+    raise NoCapacity(f"no capacity for {itype} anywhere in the region")
+
+
+def launch_waiting(ec2, ami, user_data, tag):
+    """launch() for the primary type, then any AWS_FALLBACK_TYPES, repeated
+    every AWS_CAPACITY_RETRY_S until AWS_CAPACITY_WAIT_MIN runs out."""
+    types = [os.environ.get("AWS_INSTANCE_TYPE", "g6.xlarge")] + \
+        [t for t in os.environ.get("AWS_FALLBACK_TYPES", "").replace(",", " ").split() if t]
+    wait_s = int(os.environ.get("AWS_CAPACITY_WAIT_MIN", "90")) * 60
+    every = int(os.environ.get("AWS_CAPACITY_RETRY_S", "300"))
+    t0 = time.time()
+    while True:
+        for i, itype in enumerate(types):
+            try:
+                if i:
+                    log(f"trying fallback type {itype} (different GPU than {types[0]})")
+                return launch(ec2, itype, ami, user_data, tag) + (itype,)
+            except NoCapacity as e:
+                log(str(e))
+        waited = time.time() - t0
+        if waited + every > wait_s:
+            raise InfraFailure(f"no GPU capacity for {'/'.join(types)} in "
+                               f"{ec2.meta.region_name} after waiting {waited / 60:.0f} min")
+        log(f"no capacity anywhere; waiting {every}s and trying again "
+            f"({waited / 60:.0f} of {wait_s / 60:.0f} min waited)")
+        time.sleep(every)
 
 
 # ---------------------------------------------------------------- one job
@@ -298,7 +371,8 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
     s3.put_object(Bucket=bucket, Key=f"{job}/code.tgz", Body=package_code())
 
     max_minutes = int(os.environ.get("AWS_MAX_MINUTES", "150"))
-    ttl = max_minutes * 60 + 3600
+    # Links must outlive the capacity wait plus the whole job.
+    ttl = max_minutes * 60 + 3600 + int(os.environ.get("AWS_CAPACITY_WAIT_MIN", "90")) * 60
     sign = lambda op, key: s3.generate_presigned_url(
         op, Params={"Bucket": bucket, "Key": key}, ExpiresIn=ttl)
     urls = {"code": sign("get_object", f"{job}/code.tgz"),
@@ -306,32 +380,51 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
             "log": sign("put_object", f"{job}/box.log"),
             "result": sign("put_object", f"{job}/result.tgz")}
     preflight(urls)
-    itype = os.environ.get("AWS_INSTANCE_TYPE", "g6.xlarge")
     ami, ami_name = find_ami(ec2)
     log(f"AMI {ami} {ami_name}")
     user_data = boot_script(area, epochs, crops, urls, max_minutes)
 
-    iid, market, price = launch(ec2, itype, ami, user_data, tag)
+    iid, market, price, itype = launch_waiting(ec2, ami, user_data, tag)
     t_launch = time.time()
+    deadline = t_launch + max_minutes * 60 + 600
+    net_down = None
     shown = 0
     gone_since = None
     try:
         while True:
             time.sleep(20)
-            try:   # stream the box's log into ours (the dashboard reads it)
-                body = s3.get_object(Bucket=bucket, Key=f"{job}/box.log")["Body"].read()
-                if len(body) > shown:
-                    sys.stdout.write(body[shown:].decode(errors="replace"))
-                    sys.stdout.flush()
-                    shown = len(body)
-            except ClientError:
-                pass
-            if exists(s3, bucket, f"{job}/result.tgz"):
-                break
+            if time.time() > deadline:
+                if net_down:
+                    raise InfraFailure("network lost until the hard deadline; "
+                                       "no result could be fetched")
+                log("past the hard deadline without a result")
+                return "failed"
             try:
-                state = ec2.describe_instances(InstanceIds=[iid])["Reservations"][0]["Instances"][0]
-            except (ClientError, IndexError):
-                continue          # a just-launched instance can be briefly unknown
+                try:   # stream the box's log into ours (the dashboard reads it)
+                    body = s3.get_object(Bucket=bucket, Key=f"{job}/box.log")["Body"].read()
+                    if len(body) > shown:
+                        sys.stdout.write(body[shown:].decode(errors="replace"))
+                        sys.stdout.flush()
+                        shown = len(body)
+                except ClientError:
+                    pass
+                if exists(s3, bucket, f"{job}/result.tgz"):
+                    break
+                try:
+                    state = ec2.describe_instances(InstanceIds=[iid])["Reservations"][0]["Instances"][0]
+                except (ClientError, IndexError):
+                    continue          # a just-launched instance can be briefly unknown
+            except NET_ERRORS as e:
+                # The box keeps training and uploads its result regardless;
+                # only our view of it is gone. Keep waiting.
+                if net_down is None:
+                    net_down = time.time()
+                    log(f"network lost ({type(e).__name__}); the machine keeps "
+                        f"training, still waiting until the deadline")
+                continue
+            if net_down:
+                log(f"network back after {time.time() - net_down:.0f}s")
+                net_down = None
             st = state["State"]["Name"]
             if st in ("shutting-down", "terminated", "stopped", "stopping"):
                 gone_since = gone_since or time.time()
@@ -339,10 +432,11 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
                     reason = state.get("StateReason", {}).get("Message", "?")
                     log(f"machine {st} without a result: {reason}")
                     return "interrupted" if "Spot" in reason else "failed"
-            if time.time() - t_launch > max_minutes * 60 + 600:
-                log("past the hard deadline without a result")
-                return "failed"
-        buf = io.BytesIO(s3.get_object(Bucket=bucket, Key=f"{job}/result.tgz")["Body"].read())
+        if net_down:
+            log(f"network back after {time.time() - net_down:.0f}s")
+        buf = io.BytesIO(retry_net(
+            lambda: s3.get_object(Bucket=bucket, Key=f"{job}/result.tgz")["Body"].read(),
+            "result download", deadline + 1800))
         out_dir.mkdir(parents=True, exist_ok=True)
         with tarfile.open(fileobj=buf) as t:
             t.extractall(out_dir, filter="data")
@@ -350,10 +444,11 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
         ok = rc == "0" and (out_dir / "models" / f"{area}.onnx").exists()
         return "ok" if ok else "failed"
     finally:
-        try:
-            ec2.terminate_instances(InstanceIds=[iid])
-        except ClientError as e:
-            log(f"WARNING terminate {iid} failed: {e}")
+        try:   # the box also self-terminates; this is the belt to its braces
+            retry_net(lambda: ec2.terminate_instances(InstanceIds=[iid]),
+                      "terminate", time.time() + 600)
+        except (ClientError, InfraFailure) as e:
+            log(f"WARNING terminate {iid} failed (it shuts itself down anyway): {e}")
         mins = (time.time() - t_launch) / 60
         cost = f", ~${price * mins / 60:.2f}" if price else ""
         log(f"machine {iid} terminated after {mins:.1f} min ({market}{cost})")
@@ -366,14 +461,24 @@ def main():
     load_env()
     sess = boto3.session.Session()
     retries = int(os.environ.get("AWS_RETRIES", "1"))
-    for attempt in range(retries + 1):
-        result = run_job(sess, area, out_dir, epochs, crops, attempt)
-        if result == "ok":
-            log("done")
-            return 0
-        if result != "interrupted":
-            break
-        log("spot interruption, launching again")
+    try:
+        for attempt in range(retries + 1):
+            result = run_job(sess, area, out_dir, epochs, crops, attempt)
+            if result == "ok":
+                log("done")
+                return 0
+            if result != "interrupted":
+                break
+            log("spot interruption, launching again")
+        if result == "interrupted":
+            raise InfraFailure(f"spot machine interrupted on all {retries + 1} attempts")
+    except (InfraFailure, *NET_ERRORS) as e:
+        reason = str(e) if isinstance(e, InfraFailure) else \
+            f"network error before launch ({type(e).__name__})"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "infra_failure.txt").write_text(reason + "\n")
+        log(f"INFRASTRUCTURE FAILURE, model not tested: {reason}")
+        return INFRA_EXIT
     log(f"FAILED ({result})")
     return 1
 

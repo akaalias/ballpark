@@ -259,8 +259,8 @@ def recent(n=8):
         return [], {}
     try:
         c = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
-        rows = c.execute("SELECT id, title, category, primary_metric, kept, duration_s, metrics_json, kind "
-                         "FROM experiments ORDER BY id DESC LIMIT ?", (n,)).fetchall()
+        rows = c.execute("SELECT id, title, category, primary_metric, kept, duration_s, metrics_json, kind, "
+                         "conclusion FROM experiments ORDER BY id DESC LIMIT ?", (n,)).fetchall()
         allrows = c.execute("SELECT id, primary_metric, kept, duration_s, metrics_json FROM experiments "
                             "WHERE kind != 'holdout_check' ORDER BY id ASC").fetchall()
         c.close()
@@ -375,7 +375,9 @@ class Activity:
         if rows:
             r = rows[0]
             if self.last_id is not None and r[0] != self.last_id:
-                verdict = "kept — new best" if r[4] else "reverted"
+                verdict = ("kept — new best" if r[4] else
+                           "not tested (infrastructure failure)" if (r[8] or "").startswith("NOT TESTED")
+                           else "reverted")
                 self.add(time.time(), f"experiment {r[0]} recorded: {verdict}", key=("record", r[0]))
             self.last_id = r[0]
         # the loop's own output, if it is being logged (detached launch)
@@ -592,15 +594,18 @@ def recent_panel():
     t.add_column("#", width=3); t.add_column("experiment", ratio=1, no_wrap=True, overflow="ellipsis")
     t.add_column("verdict", width=9); t.add_column("score", justify="right", width=6)
     t.add_column("usable", justify="right", width=6); t.add_column("total", justify="right", width=7)
-    for eid, title, cat, score, kept, dur, mj, kind in rows:
+    for eid, title, cat, score, kept, dur, mj, kind, concl in rows:
         _, b, _ = rates(read_json_s(mj))
         usable = f"{(b.get('usable_fix_rate') or 0) * 100:.1f}%" if b else "–"
         verdict = "kept" if kept else "reverted"
-        if score is not None and score >= 1e8:   # scorer FAIL_SCORE is 1e9
+        if (concl or "").startswith("NOT TESTED"):   # cloud failure, never measured
+            verdict, score_s = "untested", "–"
+        elif score is not None and score >= 1e8:   # scorer FAIL_SCORE is 1e9
             verdict, score_s = "gated", "×"
         else:
             score_s = f"{score:.3f}" if score is not None else "–"
-        t.add_row(str(eid), title or "", Text(verdict, style=OK if kept else ("red3" if verdict == "gated" else "default")),
+        t.add_row(str(eid), title or "", Text(verdict, style=OK if kept else ("red3" if verdict == "gated" else
+                                                              MUTED + " italic" if verdict == "untested" else "default")),
                   score_s, Text(usable, style=MUTED), mins(dur or 0))
     return Panel(t, title="recent experiments", title_align="left", border_style="grey50")
 

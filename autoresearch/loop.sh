@@ -750,6 +750,19 @@ PYSEED
   for pid in $PIDS; do wait "$pid" || FAILED=1; done
   for area in $AREAS; do echo "--- train $area:"; tail -2 "$RUN_DIR/train_$area.log"; done
   T_TRAIN=$(( $(date +%s) - T0 ))
+  # A remote launcher that failed for CLOUD reasons (no GPU capacity, network
+  # lost, spot interrupted on every attempt) leaves infra_failure.txt in its
+  # out-dir. The model was never measured, so the record says NOT TESTED
+  # rather than REVERTED (issue #13; experiments 21 and 24 were recorded as
+  # refuted ideas when the cloud had failed).
+  INFRA_REASON=""
+  if [ "$FAILED" = "1" ]; then
+    for area in $AREAS; do
+      if [ -f "$RUN_DIR/train_$area/infra_failure.txt" ]; then
+        INFRA_REASON="$(head -1 "$RUN_DIR/train_$area/infra_failure.txt")"
+      fi
+    done
+  fi
   if [ "$FAILED" = "0" ]; then
     mkdir -p "$RUN_DIR/models"
     for area in $AREAS; do
@@ -815,6 +828,11 @@ $(cat "$RUN_DIR/experiment.json")" || true
     # DRAW_FIGURES=kept: a design that became the new best earns its figure
     # now, from its own record, before that record is logged.
     [ "${DRAW_FIGURES:-1}" = "kept" ] && draw_figure "$RUN_DIR" "$RUN_DIR/experiment.json"
+  elif [ -n "$INFRA_REASON" ]; then
+    git checkout -- model/ 2>/dev/null || true
+    RESULT="infrastructure failure before any result: $INFRA_REASON"
+    CONCLUSION="NOT TESTED — infrastructure failure ($INFRA_REASON); the idea was never measured, so the change was discarded without a verdict and is free to be re-run"
+    echo "NOT TESTED: infrastructure failure ($INFRA_REASON); best remains $BEST"
   else
     git checkout -- model/ 2>/dev/null || true
     CONCLUSION="REVERTED — mission score did not improve ($METRIC vs best $BEST); change discarded"
