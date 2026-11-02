@@ -279,3 +279,20 @@ Uploading LFS objects: 100% (1/1), 4.9 MB | 349 KB/s, done.
 Graceful stop requested — 25/100 experiments recorded so far.
 Loop finished. Best mission score: 0.077671 — see gallery/index.html
 Working tree dirty — committing pending changes as a pre-loop checkpoint.
+=== Experiment 26 (25/100 recorded)  run=20261102_125830_experiment26  parent=bd6f1b274a15c8afaf829eda0ff283dfd4bbeed6 ===
+agents finished (design: claude-opus-5-5 171s, impl: claude-opus-5-5 82s)
+--- train berlin:
+[aws] machine i-07a97131820a09403 terminated after 118.3 min (on-demand, ~$1.98)
+[aws] done
+PRIMARY worst-case mission score: 0.0902 (0=every frame a usable fix, 1=abstains everywhere, 2=confidently wrong everywhere)
+samples -> runs/20261102_125830_experiment26/samples
+REVERTED: mission score 0.090179 (best remains 0.077671)
+26
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (26 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (85 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (109 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
+WARNING: file(s) over 25MB excluded from the commit (moved to state/quarantine/20261102_125830_experiment26, not pushed):
+runs/20261102_125830_experiment26/models/berlin.onnx
