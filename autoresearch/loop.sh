@@ -122,7 +122,10 @@ print(json.dumps(snip) if snip else 'null')
 # 1.4 GB of uncropped debug renders that sat unnoticed for a day and broke
 # CI disk (2026-07-22). This catches anything of that shape before `git
 # add` ever sees it, instead of relying on a human to notice later.
-MAX_COMMIT_MB="${MAX_COMMIT_MB:-25}"
+# 40, not 25 (issue #14): it must sit above the 32 MiB model-size gate in
+# pipeline/score.py, or every gate-passing model above 25 MB is quarantined
+# instead of committed, as happened to experiments 19-25 (champion included).
+MAX_COMMIT_MB="${MAX_COMMIT_MB:-40}"
 quarantine_oversized() {
   local dir="$1" big
   [ -d "$dir" ] || return 0
