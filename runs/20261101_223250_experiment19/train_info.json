@@ -1,0 +1,111 @@
+[
+  {
+    "area": "berlin",
+    "n_train_crops": 1745088,
+    "epochs": 8,
+    "device": "cuda",
+    "train_seconds": 6536.4,
+    "onnx_bytes": 31693415,
+    "init": "pretrained:efficientnet_b0 IMAGENET1K_V1 features[0..7] (torchvision, Apache-2.0 weights), fine-tuned at 0.1x LR",
+    "n_cells": 2970,
+    "distinct_vantages_seen": 1745088,
+    "full_lattice_epochs": true,
+    "final_train_top1": 0.9097,
+    "chunk_size": 4096,
+    "max_crops_per_bucket_arg": 6000,
+    "capture_sampling": "paired-position interleave, shared heading per position, per-view photometric+sharpness nuisance randomisation, two-member committee with independent augmentation draws per member, normalised-prototype cosine head with additive margin, ImageNet-pretrained EfficientNet-B0 features[0..7] trunk per member (0.1x LR), two-level 112->56 (14x14) + 320->56 (7x7) -> 112 place feature, MixStyle cross-survey feature-statistic mixing after trunk stages 2/3/4 (train only), frame resized in-graph 128->224 px before the trunk",
+    "input_px": 224,
+    "mixstyle": {
+      "after_blocks": [
+        2,
+        3,
+        4
+      ],
+      "p": 0.5,
+      "alpha": 0.1
+    },
+    "augmentation": {
+      "blur_p": 0.7,
+      "blur_sigma_max": 1.5,
+      "blur_taps": 7,
+      "exposure": [
+        0.75,
+        1.3
+      ],
+      "channel_gain": [
+        0.85,
+        1.15
+      ],
+      "contrast": [
+        0.6,
+        1.4
+      ],
+      "brightness": [
+        -0.12,
+        0.12
+      ],
+      "gamma": [
+        0.7,
+        1.4
+      ],
+      "saturation": [
+        0.5,
+        1.5
+      ],
+      "noise_sigma_max": 0.03
+    },
+    "captures": [
+      "bb_dop20",
+      "truedop_2022",
+      "truedop_2023"
+    ],
+    "positions_per_chunk": 1365,
+    "final_train_top1_by_capture": {
+      "bb_dop20": 0.9046,
+      "truedop_2022": 0.9109,
+      "truedop_2023": 0.9136
+    },
+    "n_members": 2,
+    "trunk": "efficientnet_b0 features[0..7], two-level 1x1 lift 112->56 (14x14) + 320->56 (7x7) -> 112",
+    "embed_dim": 112,
+    "trunk_lr_mult": 0.1,
+    "pretrained_file": "effb0_features7.pt",
+    "amp": "bf16 autocast on member forward (cuda only)",
+    "final_member_top1": [
+      0.8908,
+      0.8913
+    ],
+    "final_member_agree_rate": 0.8792,
+    "head": "normalised-prototype cosine, BatchNorm1d embedding, s=30.0, train-only additive margin m=0.25 on the tent target",
+    "cos_scale": 30.0,
+    "cos_margin": 0.25,
+    "final_xs_cos_same": [
+      0.7872,
+      0.7879
+    ],
+    "final_xs_cos_diff": [
+      0.0078,
+      0.0083
+    ],
+    "final_wpv": [
+      0.1623,
+      0.1633
+    ],
+    "final_xsurvey_agree": [
+      0.8418,
+      0.8613
+    ],
+    "final_clean_top1": [
+      [
+        0.8906,
+        0.9043,
+        0.8965
+      ],
+      [
+        0.8906,
+        0.9004,
+        0.9121
+      ]
+    ]
+  }
+]
