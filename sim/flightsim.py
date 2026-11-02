@@ -17,9 +17,11 @@ Honesty rules, fixed up front (2026-08-28, per Alexis):
     flight times out, that is reported as no arrival — not retried away.
   - Fix outcomes are classified with the SAME thresholds as score.py
     (CONF_THRESHOLD, TARGET_M=100), imported, not re-typed.
-  - Known best-case caveats, stated rather than hidden: the camera renders
-    from the same reference raster the model memorized (validates the
-    navigation loop, not sim-to-real); altitude is fixed at the trained
+  - The camera renders from the area's EVAL capture (--capture, default
+    truedop_2024 for Berlin since 2026-11-02, issue #15): a photograph the
+    model never saw in training, exactly as score.py asks. Eval-time use
+    only. Until then it rendered from the raster the model memorized.
+  - Known best-case caveats, stated rather than hidden: altitude is fixed at the trained
     1 m/px scale; true pose is rounded to the nearest pixel (<=0.7 m,
     below the GSD).
 
@@ -41,7 +43,10 @@ from pipeline.common import CROP_PX, load_meta, px_to_lonlat
 from pipeline.dataset import WINDOW_PX, extract_crop, norm_to_px
 from pipeline.score import CONF_THRESHOLD, TARGET_M, load_session, predict
 
-CHAMPION_ONNX = Path("runs/20260731_112048_experiment5/models/berlin.onnx")
+# capture-holdout experiment 20 (mission 0.0777 on the held-out photograph).
+# Until 2026-11-02: runs/20260731_112048_experiment5 (berlin-slim, 0.040 on
+# its own training photograph).
+CHAMPION_ONNX = Path("runs/20261102_010051_experiment20/models/berlin.onnx")
 
 # ---- airframe / dynamics (TBS Source One V6-class fixed-wing conversion) ----
 AIRSPEED = 16.0          # m/s nominal cruise
@@ -231,6 +236,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--area", default="berlin")
     ap.add_argument("--onnx", type=Path, default=CHAMPION_ONNX)
+    ap.add_argument("--capture", default="truedop_2024",
+                    help="which photograph the camera sees (data/<area>/relight/<capture>.png); "
+                         "default is Berlin's held-out eval capture")
     ap.add_argument("--flights", type=int, default=1)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-vision", action="store_true",
@@ -247,7 +255,7 @@ def main():
     args = ap.parse_args()
 
     meta = load_meta(args.area)
-    img = np.asarray(Image.open(Path("data") / args.area / "relight" / "asis.png"))
+    img = np.asarray(Image.open(Path("data") / args.area / "relight" / f"{args.capture}.png"))
     sess = load_session(args.onnx)
     rng = np.random.default_rng(args.seed)
 
@@ -287,6 +295,7 @@ def main():
         "n_flights": len(flights),
         "vision": not args.no_vision,
         "onnx": str(args.onnx),
+        "capture": args.capture,
         "conf_threshold": CONF_THRESHOLD, "target_m": TARGET_M,
         "params": {"airspeed_ms": AIRSPEED, "max_turn_dps": MAX_TURN_RATE,
                    "fix_s_cruise": FIX_INTERVAL_CRUISE,

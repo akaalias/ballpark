@@ -107,6 +107,8 @@ FP_PAGE_CSS = """
 .fp-chart{margin-top:8px}
 .fp-chart svg{display:block;width:100%;height:auto}
 table.fp-fail{margin:18px auto 0;border-collapse:collapse;font:14px/1.55 var(--serif)}
+.fp-cmp .sub{font-size:12px;color:var(--muted);font-weight:400}
+.fp-cmp th{vertical-align:bottom}
 table.fp-fail th{font:600 10.5px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
   border-bottom:1px solid var(--rule);padding:4px 14px;text-align:left}
@@ -128,14 +130,17 @@ table.fp-fail .hold{color:var(--ochre);font-size:12.5px}
 
 
 def build_basemap(meta_w, meta_h):
-    """Downsampled, desaturated orthophoto so the overlays carry the page.
+    """Downsampled, desaturated orthophoto (Berlin TrueDOP 2024, the eval
+    capture) so the overlays carry the page.
 
     The source raster (data/, gitignored) only exists on a research machine;
     the derived basemap is committed in assets/sim/, so CI — which re-renders
     every page via build_site.sh — reuses it rather than regenerating."""
     ASSETS.mkdir(parents=True, exist_ok=True)
     out = ASSETS / "berlin-base.jpg"
-    src = REPO_ROOT / "data" / "berlin" / "relight" / "asis.png"
+    # The held-out 2024 photograph (issue #15): the one the camera sees, and
+    # one the model never trained on.
+    src = REPO_ROOT / "data" / "berlin" / "relight" / "truedop_2024.png"
     if not src.exists():
         if not out.exists():
             raise SystemExit(f"neither {src} nor committed {out} exists")
@@ -177,6 +182,13 @@ def build_crops(fixes):
 
 
 MC_FLIGHTS_SRC = REPO_ROOT / "sim" / "out" / "mc_flights"
+SHOWCASE_MISS = json.loads(SHOWCASE.read_text())["flights"][0]["declared_miss_m"]
+
+# The previous record, kept for the comparison block: berlin-slim experiment 5
+# (0.040), flown 2026-08-28 over the raster it had memorized. Same routes,
+# seeds and wind as today's runs.
+PREVIOUS = {"within": 91, "median": 45.4, "worst": 7362, "ff": 207, "ff_flights": 50,
+            "off_map": 77, "showcase_miss": 25.5, "showcase_ff": 7, "showcase_peak": 5510}
 
 
 def build_flight_assets():
@@ -226,7 +238,7 @@ def flight_selector_html():
         for label, rs in groups if rs)
     return ("<select id='flightsel' aria-label='choose a flight to replay'>"
             "<option value='showcase' selected>showcase &middot; corner to corner "
-            "&middot; lands 25.5 m out</option>" + body + "</select>")
+            f"&middot; lands {SHOWCASE_MISS:.1f} m out</option>" + body + "</select>")
 
 
 def mc_compact(mc):
@@ -269,29 +281,33 @@ def flight_section(rel, record_note, n=1):
     meta_w, meta_h = 6939, 6828  # berlin raster (data/berlin/meta.json)
     data = {
         "w": meta_w, "h": meta_h,
-        "label": "showcase &middot; lands 25.5 m out",
+        "label": f"showcase &middot; lands {showcase['declared_miss_m']:.1f} m out",
         "flight": {k: showcase[k] for k in
                    ("start_px", "target_px", "direct_m", "flight_s", "wind",
                     "declared_miss_m", "fix_counts", "fixes", "track")},
     }
     return f"""
 {rsec(n, "One flight, replayed",
-      "Corner to corner — 9.2 km in ten minutes, seven false fixes survived, arrival at 25.5 m.")}
+      "Corner to corner over a photograph the model never saw — 9 km in ten minutes, two false fixes survived, arrival at 40 m.")}
 <div class="fp-note">
-<p>North-west corner to south-east corner, 9 km. At
-<b>t&thinsp;=&thinsp;85&thinsp;s</b> a
+<p>North-west corner to south-east corner, 9 km, over Berlin&rsquo;s
+<b>2024 aerial survey</b>: a photograph the model never saw in training,
+taken in a different year and season, with different shadows, cars and
+construction. At <b>t&thinsp;=&thinsp;97&thinsp;s</b> a
 <b style="color:var(--accent)">false fix</b> &mdash; barely confident,
-<b>6.5 km wrong</b> (the red line points to its claim, marked
-<span style="color:var(--accent)">&times;</span>) &mdash; hijacks the
-navigator&rsquo;s belief. The aircraft never flies to the claimed spot:
-only its <i>estimate</i> teleports there, so the dashed believed path
-simply breaks off and rejoins once usable fixes haul the belief back
-within 300 m of the truth. A late burst of false fixes on final approach
-does little harm: by then the estimate is fresh, so wrong answers get
-little weight. The flight lands <b>25.5 m</b> from the target.</p>
-<p style="font-size:13px;color:var(--muted)">Seed 6, disclosed: three of
-six seeds on this route overshot the corner out of the mapped box and were
-lost &mdash; beyond the edge there is no imagery and no way back.
+<b>2.3 km wrong</b> (the red line points to its claim, marked
+<span style="color:var(--accent)">&times;</span>) &mdash; pulls the
+navigator&rsquo;s belief away. The aircraft never flies to the claimed spot:
+only its <i>estimate</i> jumps there, so the dashed believed path breaks
+off and rejoins once usable fixes haul the belief back within 300 m of the
+truth. A second false fix, 519 m out on the approach, barely moves a fresh
+estimate. 85 usable fixes, 18 honest abstentions, and the flight lands
+<b>40 m</b> from the target.</p>
+<p style="font-size:13px;color:var(--muted)">Seed 6, the same route and wind
+as the previous showcase, so the two models fly the identical test.
+Disclosed: of six seeds on this route, three land within 100 m (40, 60 and
+62 m), one lands 464 m out, and two overshoot the corner out of the mapped
+box &mdash; beyond the edge there is no imagery and no way back.
 {record_note}</p></div>
 
 <div class="fp-legend">
@@ -361,6 +377,8 @@ def main():
     ff_rate_nonhold = 100.0 * (ff_total - ff_hold) / n_conf_or_abst
     misses = sorted(r["miss"] for r in rows if r["result"] == "arrived")
     p10, p90 = misses[9], misses[89] if len(misses) > 89 else misses[-1]
+    peak_km = max(((a[1] - a[3]) ** 2 + (a[2] - a[4]) ** 2) ** 0.5
+                  for a in showcase["track"]) / 1000
 
     failure_rows = "\n".join(
         f"<tr><td class='num'>{r['id']}</td>"
@@ -373,7 +391,7 @@ def main():
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 {social_meta('gallery/flight-path.html', 'Flight path — Ballpark',
-             'A virtual fixed-wing UAV flies Berlin from a to b with the champion model as its only position source. 91 of 100 flights arrive within 100 m; the failures are shown, not averaged away.')}
+             f'A virtual fixed-wing UAV flies Berlin from a to b with the champion model as its only position source, over a photograph it never trained on. {n_within} of 100 flights arrive within 100 m; the failures are shown, not averaged away.')}
 <title>Flight path &mdash; Ballpark</title>
 <style>{CSS}
 {FP_CSS}
@@ -404,9 +422,30 @@ own estimate and scored against the truth.</p></header>
 </div>
 <p class="hero-sub">100 simulated flights, random start and target &ge;2 km
 apart, random 2&ndash;6 m/s wind. Each vision fix is the real exported
-champion (<span class="mono">berlin.onnx</span>) run on a real orthophoto
-crop at the aircraft&rsquo;s true position and heading, classified with the
+champion (<span class="mono">berlin.onnx</span>) run on a crop of Berlin&rsquo;s
+<b>2024 aerial survey</b> at the aircraft&rsquo;s true position and heading
+&mdash; a photograph it never saw in training &mdash; classified with the
 frozen scorer&rsquo;s own thresholds.</p>
+
+<p class="bl-h">Then and now</p>
+<table class="fp-fail fp-cmp">
+<thead><tr><th></th><th>previous champion<br><span class="sub">its own training photograph</span></th>
+<th>current champion<br><span class="sub">a photograph it never saw</span></th></tr></thead>
+<tbody>
+<tr><td>flights within 100 m</td><td class="num">{PREVIOUS['within']}/100</td><td class="num"><b>{n_within}/100</b></td></tr>
+<tr><td>median miss at arrival</td><td class="num">{PREVIOUS['median']:.0f} m</td><td class="num">{s['declared_miss_median_m']:.0f} m</td></tr>
+<tr><td>worst flight</td><td class="num">{PREVIOUS['worst']:,} m</td><td class="num">{s['declared_miss_worst_m']:,.0f} m</td></tr>
+<tr><td>false fixes, all 100 flights</td><td class="num">{PREVIOUS['ff']} <span class="sub">in {PREVIOUS['ff_flights']} flights</span></td><td class="num"><b>{ff_total}</b> <span class="sub">in {s['n_flights_with_false_fix']} flights</span></td></tr>
+<tr><td>fixes lost off the mapped box</td><td class="num">{PREVIOUS['off_map']}</td><td class="num">{s['total_fixes']['off_map']}</td></tr>
+<tr><td>showcase: landed / false fixes / worst belief error</td><td class="num">{PREVIOUS['showcase_miss']} m / {PREVIOUS['showcase_ff']} / {PREVIOUS['showcase_peak'] / 1000:.1f} km</td><td class="num">{showcase['declared_miss_m']:.0f} m / {showcase['fix_counts']['false_fix']} / {peak_km:.1f} km</td></tr>
+</tbody></table>
+<p class="hero-sub">Same 100 routes, seeds and wind. The previous champion
+(berlin-slim experiment 5, 0.040) was flown over the very photograph it had
+memorized; on any other photograph of Berlin it scores 1.87, as good as
+guessing. The current champion (capture-holdout experiment 20, 0.078) is
+flown over the held-out 2024 survey, the harder test. It lands about as
+close (median 47 m against 45 m), but far more flights arrive, nothing is
+lost off the map, and it makes under a third of the false fixes.</p>
 
 {flight_section("../", "The 100-flight record below uses random routes, failures included.")}
 
@@ -414,31 +453,31 @@ frozen scorer&rsquo;s own thresholds.</p>
       "How far the navigator's belief is from the aircraft's true position, second by second.")}
 <div class="fp-note"><p>Between fixes the error grows &mdash; wind the
 navigator cannot see. Each <b>usable fix</b> snaps it back down. The
-<b style="color:var(--accent)">false fix</b> at t&thinsp;=&thinsp;85 s is
-the spike: one confident wrong answer worth over 5 km of injected error
-&mdash; the reason the mission score prices false fixes so high. The late
-cluster of false fixes barely registers: a fresh estimate gives a wrong
+<b style="color:var(--accent)">false fix</b> at t&thinsp;=&thinsp;97 s is
+the spike: one confident wrong answer worth over 2 km of injected error
+&mdash; the reason the mission score prices false fixes so high. The second
+one, on approach, barely registers: a fresh estimate gives a wrong
 answer little weight. Square-root vertical scale, so the 20&ndash;60 m
 cruise detail and the kilometre spike fit one honest axis; the dashed line
 is the 100 m usable radius.</p></div>
 <div class="fp-chart" id="chartbox"></div>
 
 {rsec(3, "A hundred flights",
-      "Every Monte-Carlo flight's miss distance — arrivals, overshoots, and the three catastrophes.")}
+      "Every Monte-Carlo flight's miss distance — arrivals and near-misses, no catastrophes.")}
 <div class="fp-note">
 <p>Each dot is one flight&rsquo;s true distance from target at the moment it
 declared arrival (hollow&nbsp;= timed out, plotted at final distance).
-{n_within} land inside the 100 m line. Six miss moderately
-(120&ndash;314 m). Three fail catastrophically &mdash; and all three had
-their <b>target on or beside the never-trained holdout ground</b>: the
-~3% of Berlin that the evaluation harness deliberately withholds from
-training as a diagnostic. Over that ground the model hallucinates
-confidently &mdash; {ff_hold} of {ff_total} false fixes across all
-100 flights stand on it. Excluding it, the in-flight false-fix rate is
-{ff_rate_nonhold:.2f}%, consistent with the 0.5% measured by the frozen
-eval. A deployed model would train on 100% of its box, so this exact
-failure is an artifact of simulating over the research configuration
-&mdash; reported as flown, not filtered out.</p></div>
+{n_within} land inside the 100 m line. The other {len(failures)} miss
+moderately ({failures[0]['miss']:.0f}&ndash;{failures[-1]['miss']:.0f} m),
+and none is lost: no flight left the mapped box, none timed out. (The
+previous champion had three catastrophes of 2&ndash;7 km.) {ff_hold} of the
+{ff_total} false fixes stand on the never-trained holdout ground, the ~3% of
+Berlin the evaluation harness deliberately withholds from training as a
+diagnostic. Excluding it, the in-flight false-fix rate is
+{ff_rate_nonhold:.2f}%, consistent with the 0.75% the frozen eval measures
+on the same photograph. A deployed model would train on 100% of its box,
+so the holdout share is an artifact of simulating over the research
+configuration &mdash; reported as flown, not filtered out.</p></div>
 <div class="fp-chart" id="mcbox"></div>
 <table class="fp-fail">
 <thead><tr><th>flight</th><th>ended</th><th>true miss</th>
@@ -450,10 +489,11 @@ failure is an artifact of simulating over the research configuration
 <div class="fp-honest">
 <div><h3>Real</h3><ul>
 <li><b>The model:</b> the exported champion <span class="mono">berlin.onnx</span>
-(experiment 5, mission score 0.040), unmodified.</li>
-<li><b>The camera:</b> a 128&thinsp;&times;&thinsp;128 m orthophoto crop at the
-aircraft&rsquo;s true position and true heading &mdash; the same off-lattice,
-rotated condition the frozen eval measures.</li>
+(capture-holdout experiment 20, mission score 0.078), unmodified.</li>
+<li><b>The camera:</b> a 128&thinsp;&times;&thinsp;128 m crop of Berlin&rsquo;s
+2024 aerial survey at the aircraft&rsquo;s true position and true heading
+&mdash; a photograph the model never saw in training, the same held-out
+condition the frozen eval measures.</li>
 <li><b>The thresholds:</b> confidence gate and the 100 m usable radius
 imported from the frozen scorer, not re-chosen.</li>
 <li><b>The fix schedule:</b> every 6 s in cruise, 2 s on approach &mdash;
@@ -469,9 +509,10 @@ hardware; vision stays the only <i>position</i> source), fixes blended by
 staleness. False fixes are accepted like any other.</li>
 </ul></div>
 <div><h3>Best-case caveats</h3><ul>
-<li>The camera renders from the <b>same reference imagery the model
-memorized</b> &mdash; this validates the navigation loop, not
-sim-to-real transfer.</li>
+<li>The camera is a <b>different aerial survey</b> than the training ones,
+not a real drone camera: no lens distortion, motion blur, night or sensor
+noise. It tests a photograph the model never saw, not sim-to-real
+transfer.</li>
 <li>Altitude is fixed at the trained 1 m/px scale; tilt and altitude
 robustness are unmeasured, here as in the eval.</li>
 </ul></div>
@@ -483,10 +524,10 @@ Whatever navigation is happening here, it is the model doing it.</li>
 </div>
 
 <p class="bl-h">The bottom line</p>
-<p class="bottom-line"><span class="hl">Asked to actually fly, the champion
-delivers 91 flights in 100 to within 100 m</span> &mdash; and every failure
-is on the page, three of them explained by ground the research harness
-deliberately never taught it.</p>
+<p class="bottom-line"><span class="hl">Asked to fly over a photograph it
+never saw, the champion delivers {n_within} flights in 100 to within
+100 m</span> &mdash; with under a third of the false fixes the previous champion
+made on its own training photograph, and every miss on the page.</p>
 
 </div>
 <script>{charts_js(json.dumps(rows, separators=(',', ':')))}</script>
