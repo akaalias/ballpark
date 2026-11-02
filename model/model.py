@@ -116,6 +116,21 @@ stride-equivalent points of the new trunk: after features[3], [6], [10]
 128->224 in-graph resize are unchanged; the pretrained blocks are still
 fine-tuned at TRUNK_LR_MULT.
 
+EFFICIENTNET-B0 TRUNK (capture-holdout era, experiment 19): each member's
+MobileNetV2 trunk is replaced by torchvision's EfficientNet-B0 stem + all
+seven MBConv stages (features[0..7], IMAGENET1K_V1, Apache-2.0 weights /
+BSD-3 code; the final 320->1280 1x1 conv features[8] is excluded), loaded
+strict from the baked file model/pretrained/effb0_features7.pt (verbatim
+torchvision tensors incl. BN running stats; nothing is downloaded).
+torchvision's default stochastic depth (0.2) is kept: active only in train
+mode, identity in eval/export. The two read levels keep their strides: after
+features[5] (112x14x14 at 224 px, stride 16) and after features[7] (320x7x7,
+stride 32), each through its own 1x1 lift to 56 -> GAP -> concat to the same
+112-d feature. MixStyle moves to the stride-equivalent points: after
+features[2], [3], [4] (24x56x56, 40x28x28, 80x14x14). Head, committee,
+decode, losses and the 128->224 in-graph resize are unchanged; the
+pretrained stages are still fine-tuned at TRUNK_LR_MULT.
+
 The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
 offset -> conf) lives INSIDE the exported graph, because the scorer runs the
 ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
@@ -129,24 +144,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import mobilenet_v2
+from torchvision.models import efficientnet_b0
 
 CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
 N_MEMBERS = 2  # independent committee members (no shared weights)
 EMBED_DIM = 112   # concatenated lift output / prototype / offset-head width (as exp 11)
 LIFT_DIM = EMBED_DIM // 2  # per-level lift width (56 + 56 = 112)
-TRUNK_BLOCKS = 18  # mobilenet_v2.features[:18] = stem + 17 IR blocks -> 320x7x7 at 224 px
+TRUNK_BLOCKS = 8  # efficientnet_b0.features[:8] = stem + 7 MBConv stages -> 320x7x7 at 224 px
 INPUT_PX = 224  # frame is bilinearly resized to this before the pretrained trunk (ImageNet training resolution)
-TRUNK_OUT_CH = 320  # deep level (after features[17]): 320x7x7 at 224 px, stride 32
-TRUNK_MID_BLOCKS = 14  # features[:14] -> 96x14x14 at 224 px, stride 16
-TRUNK_MID_CH = 96
-PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "mnv2_features17.pt"
+TRUNK_OUT_CH = 320  # deep level (after features[7]): 320x7x7 at 224 px, stride 32
+TRUNK_MID_BLOCKS = 6  # features[:6] -> 112x14x14 at 224 px, stride 16
+TRUNK_MID_CH = 112
+PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "effb0_features7.pt"
 TRUNK_LR_MULT = 0.1  # pretrained blocks train at this multiple of the head LR
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
 COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
-MIXSTYLE_AFTER = (3, 6, 10)  # features[i] after which MixStyle runs: stride 4/8/16 (24x56x56, 32x28x28, 64x14x14)
+MIXSTYLE_AFTER = (2, 3, 4)  # features[i] after which MixStyle runs: stride 4/8/16 (24x56x56, 40x28x28, 80x14x14)
 MIXSTYLE_P = 0.5      # per-batch, per-insertion-point probability of mixing
 MIXSTYLE_ALPHA = 0.1  # Beta(alpha, alpha) for the per-instance mixing weight
 MIXSTYLE_EPS = 1e-6
@@ -158,17 +173,29 @@ def grid_dims(meta: dict) -> tuple[int, int]:
 
 
 def build_pretrained_trunk() -> nn.Sequential:
-    """MobileNetV2 features[0..17] with ImageNet weights loaded STRICT
+    """EfficientNet-B0 features[0..7] with ImageNet weights loaded STRICT
     from the baked file (keys prefixed 'features.'). Call once per member so
-    each owns an independent copy."""
-    trunk = mobilenet_v2(weights=None).features[:TRUNK_BLOCKS]
+    each owns an independent copy. torchvision's default stochastic depth
+    (0.2) is kept (train-mode only; identity in eval/export)."""
+    trunk = efficientnet_b0(weights=None).features[:TRUNK_BLOCKS]
     sd = torch.load(PRETRAINED_TRUNK_PATH, map_location="cpu", weights_only=True)
     trunk.load_state_dict({k[len("features."):]: v for k, v in sd.items()}, strict=True)
-    # Fail loudly on a wrong slice: the last block must emit TRUNK_OUT_CH.
-    last_ch = trunk[-1].conv[-1].num_features  # final BN of the last InvertedResidual
-    mid_ch = trunk[TRUNK_MID_BLOCKS - 1].conv[-1].num_features
-    assert last_ch == TRUNK_OUT_CH, f"trunk out channels {last_ch} != {TRUNK_OUT_CH}"
-    assert mid_ch == TRUNK_MID_CH, f"trunk mid channels {mid_ch} != {TRUNK_MID_CH}"
+    # Fail loudly on a wrong slice: shape-check both read levels on a dummy
+    # 224 px forward, in eval mode, then restore the train/eval state.
+    was_training = trunk.training
+    trunk.eval()
+    with torch.no_grad():
+        h = torch.zeros(1, 3, INPUT_PX, INPUT_PX)
+        h_mid = None
+        for i, blk in enumerate(trunk):
+            h = blk(h)
+            if i == TRUNK_MID_BLOCKS - 1:
+                h_mid = h
+    trunk.train(was_training)
+    exp_mid = [1, TRUNK_MID_CH, INPUT_PX // 16, INPUT_PX // 16]
+    exp_out = [1, TRUNK_OUT_CH, INPUT_PX // 32, INPUT_PX // 32]
+    assert list(h_mid.shape) == exp_mid, f"trunk mid shape {list(h_mid.shape)} != {exp_mid}"
+    assert list(h.shape) == exp_out, f"trunk out shape {list(h.shape)} != {exp_out}"
     return trunk
 
 
@@ -202,15 +229,15 @@ class MixStyle(nn.Module):
 
 
 class Member(nn.Module):
-    """One independent localizer: pretrained MobileNetV2 trunk read at two
-    depths (96x14x14 after features[13], 320x7x7 after features[17], on the
+    """One independent localizer: pretrained EfficientNet-B0 trunk read at two
+    depths (112x14x14 after features[5], 320x7x7 after features[7], on the
     224 px resized input) -> one 1x1 lift per
     level -> GAP -> concat -> (C-way cell COSINES against normalised
     prototypes, within-cell offset)."""
 
     def __init__(self, n_cells: int):
         super().__init__()
-        # One Sequential holding exactly the 18 pretrained blocks, so
+        # One Sequential holding exactly the 8 pretrained stages, so
         # trunk_parameters()/head_parameters() split cleanly; embed() runs it
         # in two slices (slicing shares the same submodules).
         self.trunk = build_pretrained_trunk()
@@ -244,7 +271,7 @@ class Member(nn.Module):
         x = F.interpolate(x, size=(INPUT_PX, INPUT_PX), mode="bilinear", align_corners=False)
         xn = (x - self.in_mean) / self.in_std
         # Blocks run one by one so MixStyle (train-only; identity in eval) can
-        # follow features[3]/[6]/[10]. h_mid is taken after features[13].
+        # follow features[2]/[3]/[4]. h_mid is taken after features[5].
         h = xn
         h_mid = None
         for i, blk in enumerate(self.trunk):
@@ -252,7 +279,7 @@ class Member(nn.Module):
             if i in MIXSTYLE_AFTER:
                 h = self.mixstyle(h)
             if i == TRUNK_MID_BLOCKS - 1:
-                h_mid = h                               # [B, 96, 14, 14]
+                h_mid = h                               # [B, 112, 14, 14]
         h_deep = h                                      # [B, 320, 7, 7]
         f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
                        self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]

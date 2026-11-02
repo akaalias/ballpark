@@ -97,6 +97,15 @@ CUDA only, the member forward pass runs under bf16 autocast (no GradScaler)
 and its outputs are cast back to fp32 before targets/loss/statistics; on
 MPS/CPU nothing changes, and survey_diag and the export stay fp32.
 
+EFFICIENTNET-B0 TRUNK (experiment 19): each member's trunk is now
+ImageNet-pretrained EfficientNet-B0 features[0..7] (model.model, Apache-2.0
+weights / BSD-3 code, loaded strict from the baked
+model/pretrained/effb0_features7.pt; torchvision's default stochastic depth
+0.2 kept, train mode only), read after features[5] (112x14x14) and
+features[7] (320x7x7), each lifted to 56 and concatenated to 112; MixStyle
+runs after stages 2/3/4 (stride 4/8/16). The training loop, optimiser groups,
+schedule, augmentation and targets are unchanged.
+
 Usage: python -m model.train --area berlin --out-dir runs/<id> [--epochs 2]
 """
 
@@ -429,7 +438,7 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
     pos_per_chunk = max(1, CHUNK_SIZE // n_caps)
     model = build_model(meta).to(device)
     amp_desc = "bf16 autocast on member forward (cuda only)" if device == "cuda" else "off"
-    print(f"[{area}] trunk: mobilenet_v2 features[0..{TRUNK_BLOCKS - 1}] "
+    print(f"[{area}] trunk: efficientnet_b0 features[0..{TRUNK_BLOCKS - 1}] "
           f"IMAGENET1K_V1 loaded strict from {PRETRAINED_TRUNK_PATH.name} "
           f"x {N_MEMBERS} members, input {CROP_PX}->{INPUT_PX} px bilinear (in-graph), "
           f"lifts {TRUNK_MID_CH}->{LIFT_DIM} @{MID_HW}x{MID_HW} + "
@@ -497,8 +506,8 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "device": device,
         "train_seconds": round(time.time() - t0, 1),
         "onnx_bytes": onnx_path.stat().st_size,
-        "init": ("pretrained:mobilenet_v2 IMAGENET1K_V1 features[0..17] "
-                 "(torchvision, BSD-3), fine-tuned at 0.1x LR"),  # §9
+        "init": ("pretrained:efficientnet_b0 IMAGENET1K_V1 features[0..7] "
+                 "(torchvision, Apache-2.0 weights), fine-tuned at 0.1x LR"),  # §9
         "n_cells": model.n_cells,
         "distinct_vantages_seen": epochs * len(crops) * n_caps,
         "full_lattice_epochs": True,
@@ -509,10 +518,10 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
                              "per-view photometric+sharpness nuisance randomisation, "
                              "two-member committee with independent augmentation draws per member, "
                              "normalised-prototype cosine head with additive margin, "
-                             "ImageNet-pretrained MobileNetV2 features[0..17] trunk per member (0.1x LR), "
-                             "two-level 96->56 (14x14) + 320->56 (7x7) -> 112 place feature, "
+                             "ImageNet-pretrained EfficientNet-B0 features[0..7] trunk per member (0.1x LR), "
+                             "two-level 112->56 (14x14) + 320->56 (7x7) -> 112 place feature, "
                              "MixStyle cross-survey feature-statistic mixing after trunk "
-                             "blocks 3/6/10 (train only), "
+                             "stages 2/3/4 (train only), "
                              f"frame resized in-graph {CROP_PX}->{INPUT_PX} px before the trunk"),
         "input_px": INPUT_PX,
         "mixstyle": {"after_blocks": list(MIXSTYLE_AFTER), "p": MIXSTYLE_P,
@@ -522,7 +531,7 @@ def train_area(area: str, out_dir: Path, data_dir: Path, epochs: int,
         "positions_per_chunk": pos_per_chunk,
         "final_train_top1_by_capture": final_top1_by_cap,
         "n_members": N_MEMBERS,
-        "trunk": (f"mobilenet_v2 features[0..17], two-level 1x1 lift "
+        "trunk": (f"efficientnet_b0 features[0..{TRUNK_BLOCKS - 1}], two-level 1x1 lift "
                   f"{TRUNK_MID_CH}->{LIFT_DIM} ({MID_HW}x{MID_HW}) + "
                   f"{TRUNK_OUT_CH}->{LIFT_DIM} ({DEEP_HW}x{DEEP_HW}) "
                   f"-> {EMBED_DIM}"),
