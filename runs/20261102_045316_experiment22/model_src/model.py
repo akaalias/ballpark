@@ -1,0 +1,403 @@
+"""AGENT-EDITABLE — model architecture + deployment inference wrapper.
+
+The autoresearch loop may rewrite anything here (architecture, loss,
+confidence mechanism, unified vs. dispatcher+specialists, pretrained init
+per CLAUDE.md §3/§9) as long as:
+  - train.py exports one ONNX per area at <out>/models/<area>.onnx taking a
+    1x3x128x128 float32 input in [0,1] and returning [[u, v, conf]] with
+    u, v normalized map coords and conf in [0,1];
+  - the export passes pipeline/score.py's frozen deployment gates.
+
+Current: localization as MAP-CELL CLASSIFICATION, from-scratch init, decoded by
+LOCAL BELIEF POOLING. The map is cut into CELL_PX-square cells (Berlin:
+55x54 = 2970); a conv trunk feeds a C-way softmax over cells plus a within-cell
+offset head. The deployed decode pools belief over the 3x3 block of cells
+centred on the argmax cell: confidence is the softmax mass on that whole
+neighborhood, and the fix is the mass-weighted centroid of those cell centres,
+nudged by the offset. Eval views stand 11-17 m off-lattice, so a view near a
+cell border honestly splits its mass between adjacent cells — that is label
+ambiguity, not place ambiguity, and pooling makes confidence measure "does the
+model know WHERE it is" rather than "which arbitrary tile label applies".
+Belief scattered across DISTANT cells still falls below threshold, so genuine
+far-field ambiguity remains a safe abstention rather than a false fix. Cell
+size is chosen so the parameterization alone suffices: a 128 m cell's
+half-diagonal is 90.5 m, inside the 100 m usable radius, so naming the right
+cell is already a usable fix. The TRAINING TARGETS are decode-consistent: the
+cell target is a bilinear tent distribution over the <=4 nearest cell centres
+(so a border view is taught the honest split its pooled decode will produce,
+not an arbitrary one-cell label), and the offset target is the residual the
+pooled centroid leaves rather than the position that centroid already encodes.
+
+TWO-MEMBER COMMITTEE (capture-holdout era, experiment 7): the network is
+N_MEMBERS = 2 fully independent Members (each its own trunk + lift + its own
+cell head + its own offset head; no shared weights),
+differing only by random initialisation and by their training augmentation
+draws. Deployed decode: per-member softmax p_k; averaged belief
+pbar = mean_k p_k; the argmax cell of pbar and the same 3x3 block mask around
+it; conf = MIN over members of member k's own mass on that consensus block —
+each member must independently put its belief there, so a frame on which the
+two members name different blocks becomes an abstention. The fix is pbar's
+mass-weighted block centroid plus the mean of the members' offsets. Member
+disagreement is epistemic uncertainty, the kind a never-seen photograph
+produces; a single model's softmax mass is not.
+
+NORMALISED-PROTOTYPE COSINE HEAD (capture-holdout era, experiment 11): each
+member's affine cell head (w_c . f + b_c) is replaced by GAP feature ->
+BatchNorm1d -> L2-normalise -> cosine against an L2-normalised, bias-free
+prototype matrix [n_cells x D]. Member.forward() returns those COSINES; the
+deployed logits are COS_SCALE * cos (no margin). In training only, loss_fn
+subtracts an additive margin COS_MARGIN from the target cells' cosine in
+proportion to the tent target (CosFace-style; full margin on the dominant
+cell, fractional on its tent neighbours). Why: an affine head over an
+unnormalised feature can raise its margin by growing feature and weight norms,
+so it may keep one direction per survey inside a wide cone for each tile. With
+norms fixed, the only way to lower the loss is angular, so every survey's
+picture of a tile must point at that tile's single prototype. The offset head
+still reads the raw GAP feature.
+
+PRETRAINED TRUNK (capture-holdout era, experiment 12): each member's
+from-scratch conv trunk is replaced by torchvision's MobileNetV3-Small stem +
+first eight inverted-residual blocks (features[0..8], IMAGENET1K_V1, BSD-3;
+128x128 -> 48x8x8, the same 8x8 grid as before), loaded strict from the baked
+file model/pretrained/mnv3s_features8.pt (verbatim torchvision tensors, so
+nothing is downloaded at train or inference time), followed by a trainable
+1x1 lift 48 -> EMBED_DIM + BatchNorm + ReLU. Each member builds its own
+independent copy of the weights. ImageNet mean/std normalisation of the [0,1]
+input is applied inside Member.embed via registered buffers, so it bakes into
+the ONNX graph and the input contract is unchanged. train.py fine-tunes the
+pretrained blocks at TRUNK_LR_MULT (0.1) times the head learning rate, so the
+ImageNet invariances are adapted to Berlin rather than overwritten by it.
+
+DEEPER PRETRAINED TRUNK (capture-holdout era, experiment 13): each member's
+trunk is deepened to MobileNetV3-Small features[0..10] (stem + ten IR blocks,
+IMAGENET1K_V1, BSD-3), loaded strict from the baked file
+model/pretrained/mnv3s_features10.pt (blocks 0-8 tensor-identical to
+mnv3s_features8.pt). The place feature reads TWO levels of it: the 48x8x8 map
+after block 8 (the level experiment 12 used) and the 96x4x4 map after block 10.
+Each level has its own trainable 1x1 lift to LIFT_DIM = 56 (+ BatchNorm +
+ReLU), is GAP-pooled, and the two halves are concatenated into the same
+112-d feature f feeding the unchanged BatchNorm1d -> L2 -> cosine-prototype
+head and offset head. All eleven pretrained blocks are fine-tuned at
+TRUNK_LR_MULT; the two lifts train at the head LR.
+
+CROSS-SURVEY STYLE MIXING (capture-holdout era, experiment 14): a
+parameter-free MixStyle module (Zhou et al., ICLR 2021) runs inside
+Member.embed() after trunk blocks features[1], features[3] and features[6]
+(16x32x32, 24x16x16, 40x8x8 at 128 px: the early/mid levels whose per-channel
+mean/std encode photographic 'style'). In training mode, with probability
+MIXSTYLE_P = 0.5 per batch per insertion point, each instance's per-channel
+spatial mean and std (detached) are replaced by a convex mix of its own and a
+partner's, lambda ~ Beta(0.1, 0.1) per instance, partner = a random
+permutation of the survey-mixed batch, so a place is shown wearing styles
+interpolated between the training surveys while its spatial layout is kept.
+In eval mode (and so in the ONNX export and the survey diagnostic) it is the
+identity: the deployed graph is unchanged.
+
+NATIVE-SCALE INPUT (capture-holdout era, experiment 15): the 128 px frame is
+resized in-graph (bilinear, fixed output size) to INPUT_PX = 224, MobileNetV3's
+ImageNet training resolution, as the first operation of Member.embed(), before
+ImageNet normalisation. The pretrained filters therefore see structure at the
+scale their invariance was learned at (FixRes-style train/test resolution
+matching), and the two read levels become 48x14x14 (after block 8) and 96x7x7
+(after block 10). No new parameters; GAP keeps the place feature at 112-d; the
+external input contract stays 1x3x128x128.
+
+MOBILENETV2 TRUNK (capture-holdout era, experiment 16): each member's
+MobileNetV3-Small trunk is replaced by torchvision's MobileNetV2 stem + all 17
+inverted-residual blocks (features[0..17], IMAGENET1K_V1, BSD-3; the final
+1280-channel 1x1 conv features[18] is excluded), loaded strict from the baked
+file model/pretrained/mnv2_features17.pt (verbatim torchvision tensors incl.
+BN running stats; nothing is downloaded). The two read levels keep their
+strides: after features[13] (96x14x14 at 224 px, stride 16) and after
+features[17] (320x7x7, stride 32), each through its own 1x1 lift to 56 ->
+GAP -> concat to the same 112-d feature. MixStyle moves to the
+stride-equivalent points of the new trunk: after features[3], [6], [10]
+(24x56x56, 32x28x28, 64x14x14). Head, committee, decode, losses and the
+128->224 in-graph resize are unchanged; the pretrained blocks are still
+fine-tuned at TRUNK_LR_MULT.
+
+EFFICIENTNET-B0 TRUNK (capture-holdout era, experiment 19): each member's
+MobileNetV2 trunk is replaced by torchvision's EfficientNet-B0 stem + all
+seven MBConv stages (features[0..7], IMAGENET1K_V1, Apache-2.0 weights /
+BSD-3 code; the final 320->1280 1x1 conv features[8] is excluded), loaded
+strict from the baked file model/pretrained/effb0_features7.pt (verbatim
+torchvision tensors incl. BN running stats; nothing is downloaded).
+torchvision's default stochastic depth (0.2) is kept: active only in train
+mode, identity in eval/export. The two read levels keep their strides: after
+features[5] (112x14x14 at 224 px, stride 16) and after features[7] (320x7x7,
+stride 32), each through its own 1x1 lift to 56 -> GAP -> concat to the same
+112-d feature. MixStyle moves to the stride-equivalent points: after
+features[2], [3], [4] (24x56x56, 40x28x28, 80x14x14). Head, committee,
+decode, losses and the 128->224 in-graph resize are unchanged; the
+pretrained stages are still fine-tuned at TRUNK_LR_MULT.
+
+The whole decode (softmax -> argmax -> neighborhood mask -> pooled centroid ->
+offset -> conf) lives INSIDE the exported graph, because the scorer runs the
+ONNX directly. Contract unchanged: 1x3x128x128 float32 in [0,1] ->
+[[u, v, conf]], u/v normalised map coords, conf in [0,1].
+"""
+
+import math
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torchvision.models import efficientnet_b0
+
+CELL_PX = 128  # map cell edge in raster px (== metres at this GSD)
+N_MEMBERS = 2  # independent committee members (no shared weights)
+EMBED_DIM = 112   # concatenated lift output / prototype / offset-head width (as exp 11)
+LIFT_DIM = EMBED_DIM // 2  # per-level lift width (56 + 56 = 112)
+TRUNK_BLOCKS = 8  # efficientnet_b0.features[:8] = stem + 7 MBConv stages -> 320x7x7 at 224 px
+INPUT_PX = 224  # frame is bilinearly resized to this before the pretrained trunk (ImageNet training resolution)
+TRUNK_OUT_CH = 320  # deep level (after features[7]): 320x7x7 at 224 px, stride 32
+TRUNK_MID_BLOCKS = 6  # features[:6] -> 112x14x14 at 224 px, stride 16
+TRUNK_MID_CH = 112
+PRETRAINED_TRUNK_PATH = Path(__file__).parent / "pretrained" / "effb0_features7.pt"
+TRUNK_LR_MULT = 0.1  # pretrained blocks train at this multiple of the head LR
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
+COS_SCALE = 30.0   # fixed logit scale s: deployed logits = s * cos
+COS_MARGIN = 0.25  # training-only additive cosine margin m on the tent target
+MIXSTYLE_AFTER = (2, 3, 4)  # features[i] after which MixStyle runs: stride 4/8/16 (24x56x56, 40x28x28, 80x14x14)
+MIXSTYLE_P = 0.5      # per-batch, per-insertion-point probability of mixing
+MIXSTYLE_ALPHA = 0.1  # Beta(alpha, alpha) for the per-instance mixing weight
+MIXSTYLE_EPS = 1e-6
+
+
+def grid_dims(meta: dict) -> tuple[int, int]:
+    """(gw, gh): map-cell grid covering the area's raster."""
+    return (math.ceil(meta["width"] / CELL_PX), math.ceil(meta["height"] / CELL_PX))
+
+
+def build_pretrained_trunk() -> nn.Sequential:
+    """EfficientNet-B0 features[0..7] with ImageNet weights loaded STRICT
+    from the baked file (keys prefixed 'features.'). Call once per member so
+    each owns an independent copy. torchvision's default stochastic depth
+    (0.2) is kept (train-mode only; identity in eval/export)."""
+    trunk = efficientnet_b0(weights=None).features[:TRUNK_BLOCKS]
+    sd = torch.load(PRETRAINED_TRUNK_PATH, map_location="cpu", weights_only=True)
+    trunk.load_state_dict({k[len("features."):]: v for k, v in sd.items()}, strict=True)
+    # Fail loudly on a wrong slice: shape-check both read levels on a dummy
+    # 224 px forward, in eval mode, then restore the train/eval state.
+    was_training = trunk.training
+    trunk.eval()
+    with torch.no_grad():
+        h = torch.zeros(1, 3, INPUT_PX, INPUT_PX)
+        h_mid = None
+        for i, blk in enumerate(trunk):
+            h = blk(h)
+            if i == TRUNK_MID_BLOCKS - 1:
+                h_mid = h
+    trunk.train(was_training)
+    exp_mid = [1, TRUNK_MID_CH, INPUT_PX // 16, INPUT_PX // 16]
+    exp_out = [1, TRUNK_OUT_CH, INPUT_PX // 32, INPUT_PX // 32]
+    assert list(h_mid.shape) == exp_mid, f"trunk mid shape {list(h_mid.shape)} != {exp_mid}"
+    assert list(h.shape) == exp_out, f"trunk out shape {list(h.shape)} != {exp_out}"
+    return trunk
+
+
+class MixStyle(nn.Module):
+    """Training-only feature-statistic mixing (no parameters, no buffers).
+    Identity in eval mode, so it never appears in the exported graph."""
+
+    def __init__(self, p=MIXSTYLE_P, alpha=MIXSTYLE_ALPHA, eps=MIXSTYLE_EPS):
+        super().__init__()
+        self.p = p
+        self.alpha = alpha
+        self.eps = eps
+
+    def forward(self, x):
+        # CPU RNG draw once per batch per insertion point: no device sync.
+        if not self.training or x.shape[0] < 2 or torch.rand(1).item() > self.p:
+            return x
+        B = x.shape[0]
+        mu = x.mean(dim=(2, 3), keepdim=True)
+        var = x.var(dim=(2, 3), keepdim=True)
+        sig = (var + self.eps).sqrt()
+        mu, sig = mu.detach(), sig.detach()
+        x_norm = (x - mu) / sig
+        # Sample on CPU then move (MPS lacks some Beta kernels).
+        lmda = torch.distributions.Beta(torch.tensor(self.alpha), torch.tensor(self.alpha)) \
+            .sample((B, 1, 1, 1)).to(device=x.device, dtype=x.dtype)
+        perm = torch.randperm(B, device=x.device)
+        mu_mix = mu * lmda + mu[perm] * (1 - lmda)
+        sig_mix = sig * lmda + sig[perm] * (1 - lmda)
+        return x_norm * sig_mix + mu_mix
+
+
+class Member(nn.Module):
+    """One independent localizer: pretrained EfficientNet-B0 trunk read at two
+    depths (112x14x14 after features[5], 320x7x7 after features[7], on the
+    224 px resized input) -> one 1x1 lift per
+    level -> GAP -> concat -> (C-way cell COSINES against normalised
+    prototypes, within-cell offset)."""
+
+    def __init__(self, n_cells: int):
+        super().__init__()
+        # One Sequential holding exactly the 8 pretrained stages, so
+        # trunk_parameters()/head_parameters() split cleanly; embed() runs it
+        # in two slices (slicing shares the same submodules).
+        self.trunk = build_pretrained_trunk()
+        self.lift_mid = nn.Sequential(nn.Conv2d(TRUNK_MID_CH, LIFT_DIM, 1, bias=False),
+                                      nn.BatchNorm2d(LIFT_DIM), nn.ReLU(inplace=True))
+        self.lift_deep = nn.Sequential(nn.Conv2d(TRUNK_OUT_CH, LIFT_DIM, 1, bias=False),
+                                       nn.BatchNorm2d(LIFT_DIM), nn.ReLU(inplace=True))
+        self.register_buffer("in_mean", torch.tensor(IMAGENET_MEAN).view(1, 3, 1, 1))
+        self.register_buffer("in_std", torch.tensor(IMAGENET_STD).view(1, 3, 1, 1))
+        self.embed_bn = nn.BatchNorm1d(EMBED_DIM)
+        self.prototypes = nn.Parameter(torch.empty(n_cells, EMBED_DIM))
+        nn.init.normal_(self.prototypes, std=0.01)
+        self.off_head = nn.Linear(EMBED_DIM, 2)
+        # Stateless, parameter-free; deliberately NOT inside self.trunk.
+        self.mixstyle = MixStyle()
+
+    def trunk_parameters(self):
+        """Pretrained trunk parameters (fine-tuned at TRUNK_LR_MULT x LR)."""
+        return list(self.trunk.parameters())
+
+    def head_parameters(self):
+        """Everything not in self.trunk: both lifts, embed_bn, prototypes, off_head."""
+        trunk_ids = {id(p) for p in self.trunk.parameters()}
+        return [p for p in self.parameters() if id(p) not in trunk_ids]
+
+    def embed(self, x):
+        """(e, f): e = unit-length centred embedding [B, D]; f = raw GAP
+        feature [B, D]. x is float [0,1]; ImageNet normalisation is in-graph."""
+        # Native-scale input: fixed-size bilinear upsample 128 -> INPUT_PX
+        # (plain ONNX Resize, no antialias), before ImageNet normalisation.
+        x = F.interpolate(x, size=(INPUT_PX, INPUT_PX), mode="bilinear", align_corners=False)
+        xn = (x - self.in_mean) / self.in_std
+        # Blocks run one by one so MixStyle (train-only; identity in eval) can
+        # follow features[2]/[3]/[4]. h_mid is taken after features[5].
+        h = xn
+        h_mid = None
+        for i, blk in enumerate(self.trunk):
+            h = blk(h)
+            if i in MIXSTYLE_AFTER:
+                h = self.mixstyle(h)
+            if i == TRUNK_MID_BLOCKS - 1:
+                h_mid = h                               # [B, 112, 14, 14]
+        h_deep = h                                      # [B, 320, 7, 7]
+        f = torch.cat([self.lift_mid(h_mid).mean(dim=(2, 3)),
+                       self.lift_deep(h_deep).mean(dim=(2, 3))], dim=1)  # [B, 112]
+        e =F.normalize(self.embed_bn(f), dim=1)
+        return e, f
+
+    def forward(self, x):
+        e, f = self.embed(x)
+        cos = F.linear(e, F.normalize(self.prototypes, dim=1))  # [B, n_cells] in [-1, 1]
+        # tanh*0.5 keeps offsets inside the cell, in (-0.5, 0.5) cell units.
+        return cos, torch.tanh(self.off_head(f)) * 0.5
+
+
+class CellLocNet(nn.Module):
+    """Committee of N_MEMBERS independent Members.
+
+    forward() is the DEPLOYED path and returns [B, 3] = (u, v, conf).
+    training_outputs() exposes each member's raw (cosines, offset) for the loss;
+    logits are COS_SCALE * cosines.
+    """
+
+    def __init__(self, meta: dict):
+        super().__init__()
+        gw, gh = grid_dims(meta)
+        self.gw, self.gh = gw, gh
+        self.n_cells = gw * gh
+        width, height = meta["width"], meta["height"]
+
+        # Sequential construction from the already-seeded torch RNG gives each
+        # member a different init; deliberately not re-seeded between members.
+        self.members = nn.ModuleList(Member(self.n_cells) for _ in range(N_MEMBERS))
+
+        # Cell-centre lookup tables, in normalized map coords. Registered as
+        # buffers so they bake into the ONNX graph as constants.
+        idx = np.arange(self.n_cells)
+        cell_u = ((idx % gw) + 0.5) * CELL_PX / width
+        cell_v = ((idx // gw) + 0.5) * CELL_PX / height
+        self.register_buffer("cell_u", torch.tensor(cell_u, dtype=torch.float32))
+        self.register_buffer("cell_v", torch.tensor(cell_v, dtype=torch.float32))
+        self.scale_u = CELL_PX / width
+        self.scale_v = CELL_PX / height
+
+    def block_mask(self, idx):
+        """Float [B, n_cells] mask of the 3x3 block of cells centred on each
+        argmax cell idx [B] (int64). 1.6 cell-pitches per axis (Chebyshev)
+        selects exactly the 3x3 block with float-safety margin — the next ring
+        sits at 2.0 pitches. Edge cells simply have fewer neighbours in range;
+        nothing is counted twice."""
+        win_u = self.cell_u.index_select(0, idx)
+        win_v = self.cell_v.index_select(0, idx)
+        du = (self.cell_u.unsqueeze(0) - win_u.unsqueeze(1)).abs()
+        dv = (self.cell_v.unsqueeze(0) - win_v.unsqueeze(1)).abs()
+        return ((du <= 1.6 * self.scale_u) & (dv <= 1.6 * self.scale_v)).float()
+
+    def training_outputs(self, x):
+        """List of N_MEMBERS (cosines, offset) tuples, all on the same x."""
+        return [m(x) for m in self.members]
+
+    def forward(self, x):
+        # Committee decode: averaged belief names the consensus block; each
+        # member's OWN mass on that block is measured and the smaller is the
+        # confidence, so a fix is trusted only if every member independently
+        # put its belief there. Fix = pbar's block centroid + mean offset.
+        outs = self.training_outputs(x)
+        ps = [F.softmax(COS_SCALE * c, dim=1) for c, _ in outs]  # no margin deployed
+        pbar = torch.stack(ps, 0).mean(0)
+        idx = pbar.argmax(dim=1)
+        mask = self.block_mask(idx)
+        masses = torch.stack([(p * mask).sum(dim=1) for p in ps], 0)  # [N_MEMBERS, B]
+        conf = masses.min(dim=0).values  # min of softmax sub-sums: in [0,1]
+        q = pbar * mask
+        w = q / q.sum(dim=1, keepdim=True).clamp_min(1e-9)
+        off = torch.stack([o for _, o in outs], 0).mean(0)
+        u = (w * self.cell_u.unsqueeze(0)).sum(dim=1) + off[:, 0] * self.scale_u
+        v = (w * self.cell_v.unsqueeze(0)).sum(dim=1) + off[:, 1] * self.scale_v
+        return torch.stack([u.clamp(0.0, 1.0), v.clamp(0.0, 1.0), conf], dim=1)
+
+
+def build_model(meta: dict) -> nn.Module:
+    return CellLocNet(meta)
+
+
+def loss_fn(cos: torch.Tensor, offset_pred: torch.Tensor,
+            soft_target: torch.Tensor, offset_target: torch.Tensor) -> torch.Tensor:
+    """Additive-margin soft cross-entropy against a bilinear tent distribution
+    over cell centres + smooth-L1 on a residual offset target.
+
+    cos is the member's [B, n_cells] cosine matrix (NOT logits). The training
+    logits are COS_SCALE * (cos - COS_MARGIN * t_hat), where t_hat is the tent
+    target rescaled so its dominant cell is 1.0 (tent neighbours fractional,
+    the label-smoothing floor ~0): the margin is applied in proportion to the
+    target and only in training. soft_target is a dense [B, n_cells]
+    distribution (already includes label smoothing); offset_target is [B, 2]
+    in (-0.5, 0.5) cell units, the residual the pooled-centroid decode leaves.
+    No confidence loss term, as before.
+    """
+    t_hat = soft_target / soft_target.max(dim=1, keepdim=True).values.clamp_min(1e-9)
+    logits = COS_SCALE * (cos - COS_MARGIN * t_hat)
+    ce = -(soft_target * F.log_softmax(logits, dim=1)).sum(dim=1).mean()
+    return ce + 1.0 * F.smooth_l1_loss(offset_pred, offset_target)
+
+
+def export_onnx(model: nn.Module, path: str):
+    model.eval()
+    dummy = torch.zeros(1, 3, 128, 128)
+    torch.onnx.export(model, dummy, path, input_names=["frame"],
+                      output_names=["uvc"], opset_version=17, dynamo=False)
+
+
+def estimate_position(frame: np.ndarray, onnx_path: str, meta: dict):
+    """Deployment-shaped inference: frame (128x128x3 uint8) -> (lat, lon, conf).
+
+    On-device this maps to the P4 runtime; here it runs the same ONNX artifact.
+    """
+    import onnxruntime as ort
+    from pipeline.common import px_to_lonlat
+    sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+    x = frame.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
+    u, v, conf = sess.run(None, {"frame": x})[0][0]
+    lon, lat = px_to_lonlat(meta, float(u) * meta["width"], float(v) * meta["height"])
+    return lat, lon, float(conf)
