@@ -68,20 +68,17 @@ FP_CSS = """
 /* two rows under the map: what to replay (mission, flight), then how
    (play, scrub, time, speed). One row overflowed once the mission picker
    joined it, and the speed menu wrapped onto a line of its own. */
-.fp-picks{display:flex;gap:10px;align-items:center;margin:12px 0 0}
-.fp-picks select{font:13px var(--serif);color:var(--ink);background:var(--paper);
-  border:1px solid var(--rule);padding:3px 6px;min-width:0}
-.fp-picks #missionsel{flex:0 0 auto}
-.fp-picks #flightsel{flex:1 1 auto;max-width:100%}
+.fp-picks{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
+.fp-picks select,.fp-controls select{font:13px var(--serif);color:var(--ink);
+  background:var(--paper);border:1px solid var(--rule);height:28px;padding:0 6px;
+  min-width:0;max-width:100%}
 .fp-controls{display:flex;gap:12px;align-items:center;margin:8px 0 0;
   font:13px var(--serif);color:var(--muted)}
 .fp-controls button{font:600 12px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.07em;color:var(--paper);
-  background:var(--ink);border:none;padding:7px 16px;cursor:pointer}
+  background:var(--ink);border:none;height:28px;padding:0 16px;cursor:pointer}
 .fp-controls button:hover{background:var(--accent)}
 .fp-controls input[type=range]{flex:1;accent-color:#8c2f1f}
-.fp-controls select{font:13px var(--serif);color:var(--ink);background:var(--paper);
-  border:1px solid var(--rule);padding:3px 6px}
 .fp-controls .t-read{font-variant-numeric:lining-nums tabular-nums;min-width:64px;text-align:right}
 .fp-read .lab-sub{font-weight:400;color:var(--muted)}
 .fp-note{max-width:780px;margin:14px auto 0;font:14.5px/1.7 var(--serif);color:#4a473e}
@@ -315,19 +312,10 @@ def build_mission_assets():
 
 
 def _mission_label(kind, f):
-    """Short per-flight result for the picker, in the mission's own terms."""
-    if kind == "return_home":
-        m = f"home {f['waypoints'][-1]['true_miss_m']:,.0f} m out" if len(f["waypoints"]) == 2 else "did not get home"
-    elif kind == "tour":
-        m = (f"worst spot {max(w['true_miss_m'] for w in f['waypoints']):,.0f} m out"
-             if f["waypoints"] else "no spot reached")
-    elif kind == "loiter":
-        m = f"{f['loiter']['on_station']:.0%} on station"
-    elif kind in ("survey", "spree"):
-        m = f"{f['xtrack']['within_100m']:.0%} of the line within 100 m"
-    else:
-        m = f"lands {f['final_true_dist_m']:,.0f} m out"
-    return f"flight {f['flight_id']} &middot; {m} &middot; {f['fix_counts']['false_fix']} false"
+    """Short per-flight label for the picker: which flight, how many false
+    fixes. Success or failure is the optgroup it sits in."""
+    n = f["fix_counts"]["false_fix"]
+    return f"flight {f['flight_id']} &middot; {n} false fix{'' if n == 1 else 'es'}"
 
 
 def mission_data():
@@ -577,7 +565,7 @@ def flight_selector_html():
     def opt(r):
         return (f"<option value='{r['id']}'>flight {r['id']} &middot; "
                 f"{'timed out' if r['result'] == 'timeout' else 'lands'} "
-                f"{r['miss']:,.0f} m out &middot; {r['ff']} false</option>")
+                f"{r['miss']:,.0f} m out</option>")
     groups = (
         ("arrived within 100 m", [r for r in rows if r["within"]]),
         ("missed beyond 100 m", [r for r in rows if not r["within"] and r["result"] != "timeout"]),
