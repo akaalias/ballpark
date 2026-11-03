@@ -1597,6 +1597,16 @@ SITE_URL = "https://alexisrondeau.me/ballpark/"
 # carrier board. Also printed on assets/social/card.jpg
 # (infra/make_social_card.py) -- re-run that when this changes.
 FLIGHT_COMPUTER_USD = 18
+
+# The downloadable model is a GitHub release asset, not a file in git: a
+# 31.7 MB ONNX per champion would bloat the repository forever (the July
+# model, 3.1 MB, is still in assets/models/ for the live site on main).
+# A new champion gets a new release (gh release create ... --prerelease
+# until the branch is merged) and this URL moves with it. The overview's
+# size figure is read from the champion's own record, so keep the two in
+# step.
+MODEL_URL = ("https://github.com/akaalias/ballpark/releases/download/"
+             "model-berlin-ch20/berlin.onnx")   # capture-holdout experiment 20
 FLIGHT_COMPUTER = "Olimex ESP32-P4-DevKit"
 FLIGHT_COMPUTER_LOCAL_PRICE = "&euro;16"
 
@@ -4903,7 +4913,7 @@ the model on the chip itself, have not been tested yet.</p>
 </div>
 
 <div class="cta">
-<a class="cta-link" href="assets/models/berlin.onnx" download>Download the
+<a class="cta-link" href="{MODEL_URL}">Download the
 Berlin model &darr;</a>
 <span class="cta-meta">berlin.onnx &middot; {best_mb:.1f}&nbsp;MB &middot;
 one function: <i>estimate_position(frame) &rarr; (lat, lon,
@@ -5006,9 +5016,10 @@ can be published. A hundred of the {n_cells:,} tiles:</p>
 
 {rsec(5, "How to use it", "One file, one function, three steps.")}
 <div class="pnote">
-<p><b>1. Download the model:</b> <a href="assets/models/berlin.onnx"
+<p><b>1. Download the model:</b> <a href="{MODEL_URL}"
 download>berlin.onnx</a> ({best_mb:.1f}&nbsp;MB). It runs anywhere ONNX
-runs &mdash; a laptop, a Raspberry&nbsp;Pi, the ESP32&#8209;P4 target.</p>
+runs &mdash; a laptop, a Raspberry&nbsp;Pi. The ESP32&#8209;P4 needs it
+converted to 8-bit integers first, which has not been done yet.</p>
 <p><b>2. Feed it camera frames, 3. trust it only when it is sure</b> &mdash;
 the whole client is this:</p>
 </div>
