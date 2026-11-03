@@ -64,9 +64,8 @@ calibrations collapsed dark-bucket coverage and were correctly scored FAIL.
 > experiment 20, **0.078** (93.0% usable, 0.75% false fixes on the held-out
 > 2024 photograph). Design and implementation agents both run on Opus 5.5.
 > See CLAUDE.md's "CAPTURE-HOLDOUT ERA" and "SCOPE OVERRIDE" for what each
-> supersedes and why. This branch is not merged into `main` yet; the
-> published site still shows the July result (issue #23 collects the site
-> refresh that comes with the merge).
+> supersedes and why. Merged into `main` and published on 2026-11-03
+> (issue #23).
 
 ```bash
 REMOTE_TRAIN=1 ./autoresearch/loop.sh 12   # run until the DB holds 12 experiments, training on AWS

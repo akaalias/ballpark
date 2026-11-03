@@ -2,11 +2,13 @@
 
 ## THE CAPTURE-HOLDOUT ERA — branch `capture-holdout`, opened 2026-09-28
 
-**This is a testing branch. `main` is untouched and still publishes the
-berlin-slim result below.** Nothing here merges until the era has produced
-something better than its own baseline on its own ruler; only then is the
-question of `main` and the published report reopened. The state block below
-("STATE AS OF 2026-07-31") describes `main`, and stays true for `main`.
+**Merged into `main` and published on 2026-11-03** (Alexis; a fast-forward,
+after the site refresh of issue #23). The era beat its own baseline (1.651 →
+0.078), so the published site now tells this era's story with experiment 20
+as champion. Work continues on `capture-holdout`, where the loop pushes;
+publishing again means re-running the routine below and fast-forwarding
+`main`. The "STATE AS OF 2026-07-31" block further down is history now: the
+berlin-slim result, no longer the state of `main`.
 
 ### Why the era exists — the founding measurement
 
@@ -92,8 +94,12 @@ files, not the research record.
   can be backfilled with the same prompt (`autoresearch/prompt_figure.md`)
   and merged into `experiments.sqlite.arch_svg`; the baseline carries the
   mission era's experiment-5 figure because it is that code unchanged.
-- Before merging: re-run `rescore_history`, re-render, then the
-  `freeze_site_assets` routine — the heatmaps now show the 2024 photograph.
+- Before publishing (fast-forwarding `main`): re-run `rescore_history`,
+  re-render (gallery + `sim.render_flightpath`), then the
+  `freeze_site_assets` routine, build `_site` and look at every page on
+  desktop and at phone width. A new champion also needs a new model
+  release (`MODEL_URL` in gallery.py) and, if its flights change, the sim
+  re-run and `infra/make_social_card.py`.
 
 ### Expected shape of the era
 
@@ -125,9 +131,10 @@ with its exact code (local branch `retry-exp28`); its record still reads
   uploads it — do not use RunPod here.
 - **Flight sim** flies the exp-20 model over the 2024 photograph: 95/100
   A→B arrivals, plus six mission types (#21, `sim/missions.py`).
-- **Not merging yet** (Alexis, 2026-11-03): a new take on experiments comes
-  first. Issue #23 collects the site refresh that goes with the eventual
-  merge; the pages on this branch are being brought up to this era now.
+- **Merged and published 2026-11-03** (Alexis) after the site refresh
+  (#23). Next comes a new way of running experiments. `state/research_status`
+  reads `finished` (the era is paused, so the site shows no "live" banner);
+  set it back to `live` before restarting the loop.
 - Open hazard: a second concurrent `loop.sh` launch is not guarded (#20).
   (Fixed: the commit-size quarantine is 40 MB, above the 32 MiB model gate,
   #14.)
@@ -263,7 +270,7 @@ before the next lineage wipe, not after.**
 
 ---
 
-## STATE AS OF 2026-07-31 — read this before doing anything
+## STATE AS OF 2026-07-31 — HISTORY: the berlin-slim result, superseded on `main` by the capture-holdout merge (2026-11-03)
 
 **Branch `berlin-slim`, pushed to origin. Loop stopped, tree clean.**
 

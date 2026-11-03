@@ -361,7 +361,9 @@ p.psub.lead{font-size:19px;max-width:900px;margin-bottom:14px}
      override here silently loses to the base line-height:260px. */
   .wex-imgs{flex-direction:column}
   .wex-arr{display:none}
-  .tile-grid{grid-template-columns:1fr;gap:14px}
+  .tile-grid{grid-template-columns:minmax(0,1fr);gap:14px}
+  /* wide tables scroll inside themselves instead of widening the page */
+  table.main{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .train-grid{grid-template-columns:repeat(3,1fr);gap:6px}
   .train-grid figcaption{font-size:7px}
   pre.howto{font-size:10.5px;padding:10px 12px}
@@ -385,7 +387,8 @@ p.psub.lead{font-size:19px;max-width:900px;margin-bottom:14px}
 .tile-grid{max-width:980px;margin:26px auto 4px;padding:0 16px;
   display:grid;grid-template-columns:repeat(2,1fr);gap:22px 28px}
 /* one tile, three training photographs of it side by side */
-.tg-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tg-trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.tile-grid>figure,.tg-trio>div{min-width:0}
 .tg-trio span{display:block;margin-top:3px;font-size:10.5px;color:var(--muted);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile-grid figure{margin:0}

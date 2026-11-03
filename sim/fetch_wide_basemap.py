@@ -3,9 +3,9 @@
 The replay map is drawn wider than Berlin's model box (6.9 x 6.8 km), so it
 needs imagery beyond the box. This fetches Berlin's TrueDOP 2024 (the same
 photograph the camera sees, Geoportal Berlin, dl-de/zero-2-0) over the box
-plus a margin, at 4 m/px, and fades it the way build_basemap() fades the
+plus a margin, saved at 6 m/px, and fades it the way build_basemap() fades the
 in-box map. Display only: nothing here reaches training, scoring or the
-model, and the box itself is outlined on the page.
+model.
 
 The service offers ETRS89 / UTM 33N (EPSG:25833); the model's grid is
 WGS 84 / UTM 33N (EPSG:32633). The two differ by under a metre here, a
@@ -29,7 +29,10 @@ WMS = "https://gdi.berlin.de/services/wms/truedop_2024"
 ORIGIN = (385883.0, 5821316.0)       # UTM 33N of the box's top-left (data/berlin/meta.json)
 SIZE = (6939, 6828)                  # box size in m (1 px = 1 m on the model's grid)
 MARGIN = (4000, 2500)                # m added east/west and north/south
-GSD = 4.0                            # m per pixel of the display image
+GSD = 4.0                            # m per pixel fetched
+SAVE_GSD = 6.0                       # m per pixel saved: the map never shows finer
+                                     # than ~7.7 m per screen pixel, and 4 m/px
+                                     # cost 3.2 MB of first load (1.2 MB at 6 m/px)
 TILE = 1024                          # px per WMS request, to stay under server limits
 
 
@@ -63,13 +66,14 @@ def main():
     img = ImageEnhance.Brightness(img).enhance(1.12)
     img = Image.blend(img, Image.new("RGB", img.size, (255, 255, 248)), 0.22)
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    img.save(OUT, quality=78, optimize=True)
+    img = img.resize((round(w_m / SAVE_GSD), round(h_m / SAVE_GSD)), Image.LANCZOS)
+    img.save(OUT, quality=72, optimize=True, progressive=True)
     # where it sits in the replay's coordinates (model-grid px == m, origin at
     # the box's top-left), so the page can place it without re-deriving
     META_OUT.write_text(json.dumps({"x": -MARGIN[0], "y": -MARGIN[1],
-                                    "w": w_m, "h": h_m, "gsd_m": GSD,
+                                    "w": w_m, "h": h_m, "gsd_m": SAVE_GSD,
                                     "source": "Geoportal Berlin TrueDOP 2024, dl-de/zero-2-0"}))
-    print(f"wrote {OUT} ({W}x{H}, {OUT.stat().st_size / 1e6:.1f} MB)")
+    print(f"wrote {OUT} ({img.size[0]}x{img.size[1]}, {OUT.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

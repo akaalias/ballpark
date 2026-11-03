@@ -115,6 +115,7 @@ FP_CSS = """
 .fp-cam-mini .mini-t{display:block;font:10.5px var(--serif);color:var(--muted);
   text-align:center;margin-top:3px;font-variant-numeric:lining-nums tabular-nums}
 @media(max-width:820px){
+  table.fp-fail{display:block;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
   .fp-stage{flex-direction:column}
   .fp-side{display:none}
   .fp-cam-mini{display:block}
