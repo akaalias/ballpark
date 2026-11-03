@@ -21,8 +21,9 @@ metric. Full context: `CLAUDE.md`.
 | `FROZEN` | — | the exact list of files the loop may never touch (enforced by `loop.sh` via git revert) |
 | `runs/` | generated | per-experiment artifacts (models, metrics, heatmaps, samples) |
 | `experiments.sqlite` | generated | full experiment lineage: hypothesis, method, expected outcome, result, conclusion, all metrics |
-| `gallery/` | generated | self-refreshing pages: research log (`index.html`, samples + error heatmaps) and proposed inference paths (`inference-paths.html`, every experiment's pre-registered architecture figure) |
-| `sim/` | tool, not frozen | virtual UAV flight simulator (`flightsim.py`) — flies the exported champion from a to b with its fixes as the only position source — and the flight-path page renderer (`render_flightpath.py`). Reads the frozen pipeline, never modifies it |
+| `gallery/` | generated | self-refreshing pages: research log (`index.html`, samples + error heatmaps), model designs (`inference-paths.html`, every experiment's pre-registered architecture figure), experiment lineage, research evolution, lab notebook and flight path; the overview is `index.html` at the repo root |
+| `sim/` | tool, not frozen | virtual UAV flight simulator (`flightsim.py`) — flies the exported champion with its fixes as the only position source — six further mission types (`missions.py`: return home, tour, loiter, survey, cold start, Spree corridor), and the flight-path page renderer (`render_flightpath.py`). Reads the frozen pipeline, never modifies it |
+| `infra/` | tooling | remote training launchers (`aws_train.py` is the primary one), site build and asset freezing |
 
 ## Quickstart (already proven end-to-end by the bootstrap run)
 
@@ -54,15 +55,22 @@ calibrations collapsed dark-bucket coverage and were correctly scored FAIL.
 
 > **Current configuration: `berlin-slim`** (merged into `main` 2026-07-31),
 > **capture-holdout era** (branch `capture-holdout`, opened 2026-09-28).
-> Berlin only, raw daytime imagery, no synthetic relighting, figures off,
-> pivot gate off. The model trains on three open survey photographs of
-> Berlin and is scored on a fourth it never sees — because the 0.040
-> champion, scored on any other photograph of the same ground, scored
-> 1.8-2.0 (random, and confident). See CLAUDE.md's "CAPTURE-HOLDOUT ERA" and
-> "SCOPE OVERRIDE" for what each supersedes and why.
+> Berlin only, raw daytime imagery, no synthetic relighting, pivot gate
+> off, and **every experiment gets its architecture figure**
+> (`DRAW_FIGURES=1`, the default). The model trains on three open survey
+> photographs of Berlin and is scored on a fourth it never sees — because
+> the 0.040 champion, scored on any other photograph of the same ground,
+> scored 1.8-2.0 (random, and confident). Best so far on that ruler:
+> experiment 20, **0.078** (93.0% usable, 0.75% false fixes on the held-out
+> 2024 photograph). Design and implementation agents both run on Opus 5.5.
+> See CLAUDE.md's "CAPTURE-HOLDOUT ERA" and "SCOPE OVERRIDE" for what each
+> supersedes and why. This branch is not merged into `main` yet; the
+> published site still shows the July result (issue #23 collects the site
+> refresh that comes with the merge).
 
 ```bash
-./autoresearch/loop.sh 12               # run until the DB holds 12 experiments
+REMOTE_TRAIN=1 ./autoresearch/loop.sh 12   # run until the DB holds 12 experiments, training on AWS
+./autoresearch/loop.sh 12               # same, training locally on the M1 (~3-4x slower)
 SKIP_AGENT=1 ./autoresearch/loop.sh 1   # smoke-test the harness without an agent
 touch state/stop                        # graceful stop after the current experiment
 ./autoresearch/dashboard.sh             # the loop's dashboard: current experiment, progress,
@@ -96,16 +104,28 @@ Watch progress: `open gallery/index.html` (re-rendered when a design lands
 
 ### Compute
 
-Training runs **locally on the M1** (`model/train.py` auto-selects
-cuda > mps > cpu). Viable on a laptop again only because this branch trains
-one area instead of four.
+Training runs on **AWS** since 1 November 2026 (`REMOTE_TRAIN=1`;
+`REMOTE_BACKEND` defaults to `aws`): `infra/aws_train.py` starts a
+throwaway GPU machine per experiment (g6.xlarge, NVIDIA L4, eu-central-1,
+spot first, on-demand if no spot capacity), ships it the code and **only
+the training photographs** (it refuses to pack the eval capture), and
+brings back the ONNX. Credentials in `.env`. The machine has no git, no
+AWS credentials and no open ports, and switches itself off after
+`AWS_MAX_MINUTES` (480) no matter what. That limit guards against a
+forgotten machine and is not a training budget: a run that hits it is
+recorded as **not tested**, never as a refuted idea (issue #22). So are
+cloud failures such as no GPU capacity (issue #13).
 
-Two remote paths exist and are dormant:
+Without `REMOTE_TRAIN=1` training runs **locally on the M1**
+(`model/train.py` auto-selects cuda > mps > cpu), roughly 50 minutes per
+experiment for the champion's architecture.
+
+Two older remote paths are dormant:
 
 | | status |
 |---|---|
-| **Modal** (`REMOTE_TRAIN=1 REMOTE_BACKEND=modal`) | stateless per-area trainer, never touches git. Used 23–30 Jul; **credits exhausted**, so unusable until topped up. |
-| **RunPod** (`infra/runpod.sh`, `REMOTE_BACKEND=runpod`) | **abandoned 2026-07-23** after three days of stuck commits and merge conflicts. Scripts kept for reference; do not restart it without reading `docs/infra.md` first. |
+| **Modal** (`REMOTE_BACKEND=modal`) | stateless per-area trainer, never touches git. Backup only, capped at its $30 monthly free credit. **Do not use it on this branch until fixed: it uploads all of `data/berlin`, including the held-out eval photograph.** |
+| **RunPod** (`infra/runpod.sh`, `REMOTE_BACKEND=runpod`) | **abandoned 2026-07-23** after three days of stuck commits and merge conflicts; it has the same eval-photograph upload problem. Scripts kept for reference; do not restart it without reading `docs/infra.md` first. |
 
 The rule that came out of that period and still holds: **one git writer,
 always.** The laptop commits; a remote may only train and hand back
@@ -117,27 +137,37 @@ mess, not the provider.
 A virtual-UAV flight simulator closes the loop on the mission score's own
 premise (§2: the vision fix is the only drift correction). A point-mass
 fixed-wing flies through wind, gusts and gyro bias its navigator cannot see;
-every fix interval the sim crops the reference raster at the aircraft's
+every fix interval the sim crops **the held-out 2024 photograph** (the eval
+capture, a photograph the model never trained on) at the aircraft's
 **true** pose, runs the exported champion ONNX, and hands the answer to a
 dead-reckoning navigator that accepts false fixes like any other. Arrival is
 declared on the navigator's estimate and scored against the truth. Honesty
 rules are documented at the top of `sim/flightsim.py`; the known best-case
-caveats (camera = the memorized reference imagery; fixed 1 m/px altitude) are
-stated on the results page rather than hidden.
+caveats (the camera is another aerial survey, not a drone camera; fixed
+1 m/px altitude) are stated on the results page rather than hidden.
 
-Headline (100 flights, seed 1): **91/100 arrive within 100 m**, median
-declared miss 45 m; the dead-reckoning control arrives 0/100. All three
-catastrophic failures had targets on the never-trained region-holdout
-diagnostic ground — an artifact of simulating over the research
-configuration, reported as flown. Results are rendered as the
-`gallery/flight-path.html` page (replay, estimation-error sawtooth,
-100-flight record).
+Headline (experiment 20, 100 flights, seed 1): **95/100 arrive within
+100 m**, median declared miss 47 m, worst 212 m, nothing lost off the map;
+the dead-reckoning control arrives 0/100 (median miss 823 m).
+
+Six more mission types (`sim/missions.py`, 40 flights each, with a
+no-camera control in the same weather): return home 88%, waypoint tour 55%,
+loiter 90%, survey grid 75%, cold start 98%, Spree corridor 50%. The error
+does not build up over a mission; what fails one is nearly always a single
+confident wrong fix, and those cluster at a few places (on the Spree, 126
+of 128 sit in two kilometres of river).
+
+Results are rendered as the `gallery/flight-path.html` page (replay with a
+mission picker, estimation-error sawtooth, 100-flight record, the missions
+table).
 
 ```bash
 .venv/bin/python -m sim.flightsim --seed 6 --start 350,350 --target 6800,6600 \
     --save-crops --out sim/out/showcase.json      # the page's showcase flight
 .venv/bin/python -m sim.flightsim --flights 100 --seed 1 --out sim/out/mc.json
 .venv/bin/python -m sim.flightsim --flights 100 --seed 1 --no-vision --out sim/out/mc_dr.json
+.venv/bin/python -m sim.missions --mission all --flights 40 --seed 1 \
+    --flight-dir sim/out/mission_flights           # the six missions (+ --no-vision control)
 .venv/bin/python -m sim.render_flightpath         # rebuild the page from sim/out/
 ```
 

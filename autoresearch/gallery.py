@@ -3181,7 +3181,8 @@ actually looked at.</div>
 CREDITS_TMPL = """<footer style="margin:48px auto 24px;max-width:960px;color:#9b998c;
 font-size:12.5px;line-height:1.5;border-top:1px solid #e6e4da;padding-top:10px">
 {finished_note}Imagery-derived figures are based on open geodata:
-© GeoBasis-DE/LGB (dl-de/by-2-0) · © Bayerische Vermessungsverwaltung (CC BY 4.0)
+© GeoBasis-DE/LGB (dl-de/by-2-0) · Geoportal Berlin, TrueDOP 2022/2023/2024 (dl-de/zero-2-0)
+· © Bayerische Vermessungsverwaltung (CC BY 4.0)
 · © HVBG Hessen (dl-de/by-2-0) · © Freie und Hansestadt Hamburg, LGV (dl-de/by-2-0)
 · Contains modified Copernicus Sentinel data.
 Code: <a href="https://github.com/akaalias/ballpark/blob/main/LICENSE"
@@ -4271,6 +4272,9 @@ def render_overview(exps):
     # Which area the champion is for, read from its own metrics (f7ce820).
     champ_area = next((a.get("area") for a in cm.get("areas", [])), None) or "berlin"
     Area = champ_area.capitalize()
+    # Is the champion from the held-out-photograph era? Then the bottom line
+    # can say it works on a photograph it never saw.
+    champ_now = bool(champ) and champ.get("era") == CURRENT_ERA
     best_mb = (champ["model_bytes_max"] or 0) / 1e6 if champ else 0.0
     best_ms = (champ["latency_ms_host_proxy"] or 0.0) if champ else 0.0
     hold = next((a.get("region_holdout") or {} for a in cm.get("areas", [])), {})
@@ -4349,7 +4353,11 @@ def render_overview(exps):
     # sits between 0 (every frame usable) and 2 (confidently wrong on all)
     # The penalty shown with the hero figure is THAT model's, not the current
     # lineage's best: (1 - usable) + false, from the same cell as the rates.
-    hero_pen = ((1.0 - usable_best) + (false_best or 0.0)) if usable_best is not None else None
+    # The recorded score when there is one, so the hero and the steps table
+    # never disagree in the third decimal; rebuilt from the rates otherwise.
+    hero_pen = (champ.get("mission_score") if champ and champ.get("mission_score") is not None
+                and champ["mission_score"] < FAIL
+                else ((1.0 - usable_best) + (false_best or 0.0)) if usable_best is not None else None)
     pen_s = (f"{hero_pen:.3f}" if hero_pen is not None
              else f"{best:.3f}" if best is not None and best < FAIL else "—")
     miss_s = f"{100*(1-usable_best):.0f}%" if usable_best is not None else "—"
@@ -4397,7 +4405,8 @@ def render_overview(exps):
         bottom_line = (
             f'<p class="bottom-line"><span class="hl">Yes! We found a special-purpose '
             f'neural memory architecture that &lsquo;remembers&rsquo; an exact '
-            f'geo-location, given an in-flight daytime picture of {Area}.</span> '
+            f'geo-location, given an in-flight daytime picture of {Area}'
+            f'{" &mdash; even on a photograph of the city it never saw in training" if champ_now else ""}.</span> '
             f'No GPS, no internet, no map on board, just a '
             f'{best_mb:.1f}&nbsp;MB file of weights. It works on {usable_pct} of camera '
             f'frames, and it took {n_all_exp} experiments and ${int(cost_all):,} to '
@@ -4421,6 +4430,63 @@ def render_overview(exps):
             f'describes the ruler, the method and what the July result did and did '
             f'not show.</p>')
 
+    # "Learn the city, not the photograph": the capture-holdout era's story,
+    # told from the record. The July champion's two numbers (its own ruler,
+    # today's ruler) come from the re-scored history; the steps are this
+    # era's kept experiments, in order, with what each scored on the
+    # held-out photograph.
+    july = prev_best
+    era_steps = [e for e in dev if e["kept"] and e["primary_metric"] is not None
+                 and e["primary_metric"] < FAIL]
+    first_pre = next((e for e in era_steps
+                      if (e.get("init_strategy") or "").startswith("pretrained")), None)
+    steps_rows = "".join(
+        f"<tr{' class=\'pre\'' if first_pre and e['id'] == first_pre['id'] else ''}>"
+        f"<td class='num'>{e['id']}</td>"
+        f"<td>{esc((e['title'] or '').split(':')[0])}</td>"
+        f"<td class='num'>{e['primary_metric']:.3f}</td>"
+        f"<td class='num'>{100 * (_usable_of(e) or 0):.0f}%</td></tr>"
+        for e in era_steps)
+    if july is not None and era_steps:
+        july_today_u = 100 * (july.get("usable_fix_rate") or 0)
+        july_today_f = 100 * (july.get("false_fix_rate") or 0)
+        city_html = f"""
+<div class="pnote">
+<p><b>Then we learned it had memorised a photograph, not the city.</b> In
+July the champion scored <b>{july['era_metric']:.3f}</b> &mdash; on the very
+aerial photograph it had trained on. Shown a second photograph of the same
+streets, Berlin&rsquo;s 2024 survey, it scored <b>{july['mission_score']:.3f}</b>:
+usable on {july_today_u:.1f}% of frames, confident and wrong on
+{july_today_f:.0f}%, which is what a random guess over the city scores. It had
+learned one file&rsquo;s pixel values; adding 20 to every pixel of its own
+training photograph was enough to break it. An aircraft&rsquo;s camera will
+never see that file.</p>
+<p>So the ruler changed. Since 28 September every model trains on
+<b>three</b> photographs of Berlin taken in different years and seasons, and
+is scored only on a <b>fourth</b>, the 2024 survey, which it never sees in
+any form. Each step below is one experiment the loop proposed and
+kept:</p>
+</div>
+<table class="ov-steps">
+<thead><tr><th>exp.</th><th>the change</th><th>mission score</th><th>usable on 2024</th></tr></thead>
+<tbody>{steps_rows}</tbody></table>
+<div class="pnote">
+<p class="ov-steps-note">Lower score is better: 0 is a usable fix on every
+frame, 1 is silence, 2 is confidently wrong everywhere.{
+f" The shaded row is where the trunk stopped being learned from scratch: from experiment {first_pre['id']} on, the network starts from a small ImageNet-trained image model (torchvision, BSD-3 / Apache-2.0) and is fine-tuned on Berlin. The eyes are borrowed; the map still lives entirely in the weights." if first_pre else ""}</p>
+</div>"""
+    else:
+        city_html = ""
+    hold_u = hold.get("usable_fix_rate")
+    hold_f = hold.get("false_fix_rate")
+    if hold_u is not None:
+        hold_s = (f"returns usable fixes on <b>{100 * hold_u:.1f}%</b> of frames and "
+                  f"is confidently wrong on {100 * (hold_f or 0):.0f}%")
+    else:
+        hold_s = "returns no usable fixes"
+    n_figs = sum(1 for r in _hist if (r.get("arch_svg") or "").lstrip().startswith("<svg"))
+    figs_s = f"All {n_figs}"
+
     # The "One flight, replayed" section is owned by sim/render_flightpath.py
     # and embedded here verbatim (rel='' because this page lives at the repo
     # root). Imported lazily: that module imports this one for the page shell.
@@ -4432,10 +4498,19 @@ def render_overview(exps):
 
     html_page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('', 'Ballpark — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a $4 flight computer?', 'Yes: a from-scratch neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — the map is the weights, one city in 3.1 MB. Found by an autonomous loop of coding agents in 81 experiments for $364.')}
+{social_meta('', 'Ballpark — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a $4 flight computer?', f'Yes: a neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — usable on {usable_s2} of frames from a photograph it never trained on. The map is the weights, one city in {best_mb:.1f} MB. Found by an autonomous loop of coding agents in {n_all_exp} experiments for ${int(cost_all):,}.')}
 <title>Ballpark &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a $4 flight computer?</title>
 <style>{CSS}
-{FP_CSS}</style><script>{PATHS_JS}</script></head><body>
+{FP_CSS}
+table.ov-steps{{margin:14px auto 0;border-collapse:collapse;font:14px/1.5 var(--serif)}}
+table.ov-steps th{{font:600 10.5px var(--serif);font-feature-settings:"smcp" 1;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--rule);padding:4px 12px;text-align:left}}
+table.ov-steps td{{border-bottom:1px solid var(--rule-soft);padding:4px 12px}}
+table.ov-steps td.num{{font-variant-numeric:lining-nums tabular-nums;text-align:right}}
+table.ov-steps tr.pre td{{background:rgba(138,106,30,.10)}}
+table.ov-steps tr:last-child td{{font-weight:600}}
+.ov-steps-note{{font-size:13.5px;color:var(--muted)}}
+@media(max-width:600px){{table.ov-steps td,table.ov-steps th{{padding:4px 6px}}}}</style><script>{PATHS_JS}</script></head><body>
 {topnav('overview', root=True)}
 {compute_banner()}
 <div class="paths-wrap">
@@ -4482,6 +4557,7 @@ and the belief piles onto a single tile; lost, and it smears across the city
 &mdash; and the UAV says nothing instead. A second output nudges the fix to
 a precise point inside the chosen tile.</p>
 </div>
+{city_html}
 
 <div class="pnote">
 <p>The result is one file of <b>{best_mb:.1f}&nbsp;MB</b> that answers in
@@ -4508,9 +4584,9 @@ confidence)</i></span>
 
 <div class="pnote">
 <p><b>One model per area, by design.</b> Asked about a block of Berlin held
-out of training entirely, the same model returns <b>0% usable fixes</b>
-&mdash; the map lives in the weights, so ground it was never shown is ground
-it cannot place. The pipeline takes any bounding box; each trained model
+out of training entirely, the same model {hold_s} &mdash; the map lives in
+the weights, so ground it was never shown is ground it cannot place, and it
+does not reliably know when it is there. The pipeline takes any bounding box; each trained model
 knows only its own. Night flying is scoped out for now: everything here is
 raw daytime imagery.</p>
 </div>
@@ -4577,7 +4653,7 @@ that record, not written after the fact.</p></div>
 <p>Every experiment's model design, drawn by the design agent itself
 <i>before</i> it was allowed to train &mdash; camera frame entering on the
 left, (lat, lon, confidence) leaving on the right, red marking what that
-experiment changed. All fifty-nine that carry a figure, kept and reverted
+experiment changed. {figs_s} that carry a figure, kept and reverted
 alike; the <a href="gallery/inference-paths.html">model designs</a> page
 has each at full size:</p>
 </div>
@@ -4585,16 +4661,18 @@ has each at full size:</p>
 
 <div class="sec-h">Our training data</div>
 <div class="pnote">
-<p>Everything the model knows, it learned from one picture: an open-licensed
-aerial orthophoto mosaic of Berlin from the Berlin/Brandenburg geoportal
-(&copy;&nbsp;GeoBasis-DE/LGB, dl&#8209;de/by&#8209;2&#8209;0, modified),
-fetched by the frozen pipeline and resampled to 1&nbsp;m per pixel &mdash;
-6,939&nbsp;&times;&nbsp;6,828 pixels covering the whole bounding box. No
-Google or Bing tiles anywhere: only open geodata, so the entire project can
-be published. Training crops 128&nbsp;m frames from every position on that
-mosaic; the held-out eval frames stand on the same ground, framed from
-positions and headings training never used. A hundred of the {n_cells:,}
-tiles:</p>
+<p>Everything the model knows, it learned from <b>three</b> open-licensed
+aerial photographs of the same Berlin bounding box, each fetched by the
+frozen pipeline onto one shared grid at 1&nbsp;m per pixel
+(6,939&nbsp;&times;&nbsp;6,828 pixels): the Brandenburg DOP20 orthophoto
+(&copy;&nbsp;GeoBasis-DE/LGB, dl&#8209;de/by&#8209;2&#8209;0, modified)
+and Berlin&rsquo;s TrueDOP surveys of 2022 (leaf-off) and 2023 (early
+spring) (Geoportal Berlin, dl&#8209;de/zero&#8209;2&#8209;0). It is scored
+on a fourth, <b>TrueDOP 2024</b>, which never enters training in any form:
+held-out frames stand on the same ground, framed from positions and
+headings training never used, in a photograph taken in a different year.
+No Google or Bing tiles anywhere: only open geodata, so the entire project
+can be published. A hundred of the {n_cells:,} tiles:</p>
 </div>
 {train_grid_html}
 
@@ -4626,6 +4704,11 @@ lineage</b>
 <span>The family tree of the search: every experiment as one node in
 discovery order, arcs to the design it built on — hover any node to trace
 its ancestry, kept trunk and dead branches alike.</span></a>
+<a class="card" href="gallery/flight-path.html"><b>Flight path</b>
+<span>The model flying a simulated UAV over the 2024 photograph: 100
+random flights from a to b, then six other missions &mdash; return home,
+a tour, a loiter, a survey grid, a cold start and the Spree &mdash; each
+replayable, failures included.</span></a>
 <a class="card" href="gallery/inference-paths.html"><b>Model
 designs</b>
 <span>The technical figures: each experiment's model design, drawn by the
@@ -4877,9 +4960,11 @@ was allowed to train.</p>
 deliberately narrowed configuration: one locale (Berlin), raw daytime imagery
 only, no synthetic low-light simulation — trading the full spec's four areas
 and six lighting conditions for faster rounds while the loop searches for an
-architecture worth generalizing back out. Designs from the earlier eras below
-were built against that wider problem, which is part of why they look
-heavier.</p>
+architecture worth generalizing back out. Since 28 September each design
+trains on three aerial photographs of Berlin and is scored on a fourth it
+never sees, so it has to learn the city rather than one picture of it.
+Designs from the earliest eras below were built against the wider
+four-area problem, which is part of why they look heavier.</p>
 </div>
 <div class="contract-fig" data-ovfig data-title="The frozen contract — where the experiments happen">{contract_svg()}
 <p class="contract-cap">The shape every figure on this page shares. The gray
@@ -5817,9 +5902,10 @@ def render():
     best_size = next((e["model_bytes_max"] for e in reversed(exps)
                       if e["kept"] and e["kind"] != "holdout_check"
                       and e["model_bytes_max"]), None)
-    size_note = (f"currently <b class='num'>{best_size/1024:,.0f} KB</b>, hard limit "
-                 f"<b class='num'>32 MiB</b> (≈ 8 MiB int8 on the chip)" if best_size
-                 else "hard limit <b>32 MiB</b> (≈ 8 MiB int8 on the chip)")
+    size_note = (f"the champion&rsquo;s file is <b class='num'>{best_size/1e6:.1f}&nbsp;MB</b> "
+                 f"against a hard limit of <b class='num'>32&nbsp;MiB</b> (&asymp;&nbsp;8&nbsp;MiB "
+                 f"once quantised to int8 for the chip)" if best_size
+                 else "the hard limit is <b>32&nbsp;MiB</b> (&asymp;&nbsp;8&nbsp;MiB int8 on the chip)")
     if best is None:
         status_line = "No scoreable model yet."
     elif best <= 0.05:
@@ -5843,7 +5929,7 @@ def render():
 <style>{CSS}</style><script>{JS}</script></head><body>
 {topnav('log')}
 {compute_banner()}
-{page_header("Where we are: The experiment record", f"Every experiment the autonomous loop has run, across all {len(hist_eras) or 1} evaluation eras — kept <i>and</i> discarded. Each row was pre-registered before training (hypothesis, method, expected outcome, architecture figure), then trained on a single GPU and scored. Every score on this page is measured by <b>one</b> frozen ruler: the <b>worst</b> mission score on held-out viewpoints of a photograph the model never trained on — (1 &minus; usable-fix rate) + false-fix rate, the product requirement rather than an error statistic ({size_note}). The earlier eras were <i>judged</i> by different rulers at the time, and where those two disagree the row says so. One agent designs, one implements; failures stay on the record. New here? Start with the <a href='../index.html'>overview</a>.")}
+{page_header("Where we are: The experiment record", f"Every experiment the autonomous loop has run, across all {len(hist_eras) or 1} evaluation eras — kept <i>and</i> discarded. Each row was pre-registered before training (hypothesis, method, expected outcome, architecture figure), then trained on a single GPU and scored. Every score on this page is measured by <b>one</b> frozen ruler: the <b>worst</b> mission score on held-out viewpoints of a photograph the model never trained on — (1 &minus; usable-fix rate) + false-fix rate, the product requirement rather than an error statistic. A model must also fit the aircraft: {size_note}. The earlier eras were <i>judged</i> by different rulers at the time, and where those two disagree the row says so. One agent designs, one implements; failures stay on the record. New here? Start with the <a href='../index.html'>overview</a>.")}
 <div class="status-callout">
   <div class="status-callout-h">Where we are right now</div>
   <p>{status_line}</p>
