@@ -1611,7 +1611,8 @@ FLIGHT_COMPUTER_LOCAL_PRICE = "$9.99 retail"
 
 # The downloadable model is a GitHub release asset, not a file in git: a
 # 31.7 MB ONNX per champion would bloat the repository forever (the July
-# model, 3.1 MB, is still in assets/models/ for the live site on main).
+# model, 3.1 MB, lived in assets/models/ until it was deleted on 2026-11-03;
+# it stays in git history and in runs/20260731_112048_experiment5/).
 # A new champion gets a new release (gh release create ... --prerelease
 # until the branch is merged) and this URL moves with it. The overview's
 # size figure is read from the champion's own record, so keep the two in
