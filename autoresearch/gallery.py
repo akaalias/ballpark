@@ -2956,7 +2956,8 @@ def _nums_from_conclusion(concl):
     m = re.search(r"improved \(([\d.eE+]+) -> ([\d.eE+]+)", concl)
     if m:
         return m.group(2), m.group(1)
-    m = re.search(r"did not improve \(([\d.eE+]+) m vs best ([\d.eE+]+) m", concl)
+    # ' m' was there while the score was a distance; mission scores have no unit
+    m = re.search(r"did not improve \(([\d.eE+]+)(?: m)? vs best ([\d.eE+]+)", concl)
     if m:
         return m.group(1), m.group(2)
     return None, None
