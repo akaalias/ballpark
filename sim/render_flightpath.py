@@ -46,10 +46,14 @@ FP_CSS = """
 .k-abstain{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--faint);background:transparent}
 .k-false{width:9px;height:9px;border-radius:50%;border:2px solid var(--accent);background:transparent}
 .k-offmap{width:9px;height:9px;border:1.6px dashed var(--faint);background:transparent}
+/* the replay breaks out of the text column: up to 1440 px of the window,
+   24 px clear of each edge, centred on the column it sits in */
+.fp-wide{width:min(1440px,calc(100vw - 48px));position:relative;left:50%;
+  transform:translateX(-50%)}
 .fp-stage{display:flex;gap:22px;align-items:flex-start;margin-top:12px}
 .fp-map{flex:1 1 640px;min-width:0;position:relative}
 .fp-map svg{display:block;width:100%;height:auto;border:1px solid var(--rule)}
-.fp-side{flex:0 0 158px;position:sticky;top:14px}
+.fp-side{flex:0 0 190px;position:sticky;top:14px}
 .fp-cam{border:1px solid var(--rule);background:#f7f4e6;padding:10px}
 /* shown at (near-)native size — stretching the 128 px crops, and especially
    the 64 px reconstructions, to panel width just reads as blur */
@@ -649,6 +653,7 @@ def flight_section(rel, record_note, n=1):
     return f"""
 {rsec(n, SHOW_TITLE,
       f"Along the Spree over a photograph the model never saw — {st['km']:.1f} km in {st['dur_min']:.0f} minutes, {len(st['ff'])} false fixes at {len(st['groups'])} places, finished {st['end_m']:.0f} m from the end.")}
+<div class="fp-wide">
 <div class="fp-legend">
 <span><i class="k-true"></i>true path</span>
 <span><i class="k-est"></i>believed path</span>
@@ -691,6 +696,7 @@ def flight_section(rel, record_note, n=1):
 <p class="cam-sub" id="camsub">128&thinsp;&times;&thinsp;128 px &middot; 1 m/px &middot; ~100 m AGL</p>
 </div>
 <div class="fp-read" id="read"></div>
+</div>
 </div>
 </div>
 <div class="fp-tip" id="tip"></div>
@@ -954,8 +960,8 @@ function initFlight(f,label){
      if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m+100;add([cx-R,cy-R]);add([cx+R,cy+R]);}
      if(F.cold_start)add([D.w/2,D.h/2]);
      const pad=450,x0=Math.min(...xs)-pad,x1=Math.max(...xs)+pad,y0=Math.min(...ys)-pad,y1=Math.max(...ys)+pad;
-     // as wide as needed (>= 2.4 km), between 0.62 as tall (so the side panel fits beside it) and square
-     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.62));
+     // as wide as needed (>= 2.4 km), between half as tall and square (the replay is full-width, so a wide view keeps the controls in view)
+     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.5));
      const vx=Math.max(0,Math.min(D.w-vw,(x0+x1-vw)/2)),vy=Math.max(0,Math.min(D.h-vh,(y0+y1-vh)/2));
      svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;VB=[vx,vy,vw,vh];
    } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;VB=null;}}
