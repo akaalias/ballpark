@@ -4870,23 +4870,20 @@ on board, just a ${FLIGHT_COMPUTER_USD} flight computer?</h2>
 {bottom_line}
 
 <div class="stat-hero"><b class="num">{fl_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
-<span>simulated flights arrive within 100&nbsp;m of the target</span></div>
+<span>flights arrive within 100&nbsp;m</span></div>
 <div class="stats">
 <div class="stat"><b class="num">{fl_med:.0f} m</b>
-<span>median miss at declared arrival<br>(p10 {_p10:.0f} m &middot; p90 {_p90:.0f} m)</span></div>
+<span>median miss</span></div>
 <div class="stat"><b class="num">{fl_dr_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
-<span>arrive without vision fixes<br>(dead-reckoning control, median miss {fl_dr_med:,.0f} m)</span></div>
+<span>without camera</span></div>
 <div class="stat"><b class="num">{fl_fail}</b>
-<span>flights miss beyond 100 m &mdash;<br>every one on the <a href="gallery/flight-path.html">flight path</a> page</span></div>
+<span>miss</span></div>
 </div>
 <div class="stat-hero frames">
-  <span>Each flight steers by single camera frames: <b>{usable_s2}</b> of them give a usable position fix</span>
+  <span><b>{usable_s2}</b> of camera frames give a usable fix</span>
   {scale_svg}
-  <p class="hero-sub">confident <i>and</i> within {TARGET_M:.0f}&nbsp;m. The
-  loop minimises the <b>mission penalty</b>:
-  <span class="pen">{pen_s}</span> = <span class="pen">{miss_s}</span> no fix
-  + <span class="pen">{false_s}</span> wrong fix &mdash; a confident error
-  counts double.</p>
+  <p class="hero-sub">mission penalty <span class="pen">{pen_s}</span> =
+  <span class="pen">{miss_s}</span> no fix + <span class="pen">{false_s}</span> wrong fix</p>
 </div>
 {flight_html}
 

@@ -781,14 +781,14 @@ the river.</p></header>
 <div class="fp-wrap">
 
 <div class="stat-hero"><b class="num">{n_within}<span style="color:var(--faint)">/100</span></b>
-<span>flights arrive within 100 m of the target</span></div>
+<span>flights arrive within 100 m</span></div>
 <div class="stats">
 <div class="stat"><b class="num">{s['declared_miss_median_m']:.0f} m</b>
-<span>median miss at declared arrival<br>(p10 {p10:.0f} m &middot; p90 {p90:.0f} m)</span></div>
+<span>median miss</span></div>
 <div class="stat"><b class="num">0<span style="color:var(--faint)">/100</span></b>
-<span>arrive without vision fixes<br>(dead-reckoning control, median miss {mc_dr['summary']['declared_miss_median_m']:,.0f} m)</span></div>
+<span>without camera</span></div>
 <div class="stat"><b class="num">{len(failures)}</b>
-<span>flights miss beyond 100 m &mdash;<br>every one shown below</span></div>
+<span>miss &mdash; all shown below</span></div>
 </div>
 <p class="hero-sub">100 simulated flights, random start and target &ge;2 km
 apart, random 2&ndash;6 m/s wind. Each vision fix is the real exported
