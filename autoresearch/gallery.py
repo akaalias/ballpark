@@ -361,7 +361,7 @@ p.psub.lead{font-size:19px;max-width:900px;margin-bottom:14px}
      override here silently loses to the base line-height:260px. */
   .wex-imgs{flex-direction:column}
   .wex-arr{display:none}
-  .tile-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .tile-grid{grid-template-columns:1fr;gap:14px}
   .train-grid{grid-template-columns:repeat(3,1fr);gap:6px}
   .train-grid figcaption{font-size:7px}
   pre.howto{font-size:10.5px;padding:10px 12px}
@@ -382,8 +382,12 @@ p.psub.lead{font-size:19px;max-width:900px;margin-bottom:14px}
   font-variant-numeric:lining-nums tabular-nums}
 
 /* ---- the tile grid: eight real 128 m tiles, each with its coordinate ---- */
-.tile-grid{max-width:860px;margin:26px auto 4px;padding:0 16px;
-  display:grid;grid-template-columns:repeat(4,1fr);gap:16px 16px}
+.tile-grid{max-width:980px;margin:26px auto 4px;padding:0 16px;
+  display:grid;grid-template-columns:repeat(2,1fr);gap:22px 28px}
+/* one tile, three training photographs of it side by side */
+.tg-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.tg-trio span{display:block;margin-top:3px;font-size:10.5px;color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile-grid figure{margin:0}
 .tile-grid img{width:100%;display:block;border:1px solid var(--rule)}
 .tile-grid figcaption{margin-top:5px;font-size:11px;line-height:1.5;
@@ -4328,17 +4332,26 @@ def tile_grid():
     if not tj.exists():
         return ""
     d = json.loads(tj.read_text())
+    # Each tile in all three training photographs (infra/make_tile_versions.py);
+    # the single original photograph if the versions have not been built.
+    def trio(t):
+        vs = t.get("versions") or [{"file": t["file"], "label": ""}]
+        return "<div class='tg-trio'>" + "".join(
+            f"<div><img src='assets/tiles/{v['file']}' loading='lazy' "
+            f"alt='tile {t['idx']:,} in {v['label']}'><span>{v['label']}</span></div>"
+            for v in vs) + "</div>"
     cells = "".join(
-        f"<figure class='tg-cell'>"
-        f"<img src='assets/tiles/{t['file']}' loading='lazy' "
-        f"alt='128 m aerial tile at {t['lat']}, {t['lon']}'>"
+        f"<figure class='tg-cell'>{trio(t)}"
         f"<figcaption><span class='tg-idx'>tile {t['idx']:,} of "
         f"{d['n_cells']:,}</span>"
         f"{t['lat']:.5f}&nbsp;N &middot; {t['lon']:.5f}&nbsp;E"
         f"</figcaption></figure>"
         for t in d["tiles"])
     return (f"<div class='tile-grid'>{cells}</div>"
-            "<p class='tg-cap'>Eight of the 2,970 answers. Every tile is "
+            "<p class='tg-cap'>Eight of the 2,970 answers, each as it appears "
+            "in the three training photographs, taken in different years and "
+            "seasons; the model learns the place from all three and is tested "
+            "on a fourth it never sees. Every tile is "
             "128&nbsp;m of real Berlin and owns one coordinate, so "
             "&ldquo;which tile is this?&rdquo; is the same question as "
             "&ldquo;where am I?&rdquo; &mdash; a river bend is easy; the "
