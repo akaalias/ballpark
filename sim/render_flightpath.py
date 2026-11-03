@@ -239,7 +239,7 @@ MISSIONS_OUT = REPO_ROOT / "sim" / "out" / "missions"
 # river's false fixes cluster. Its camera frames were saved by re-flying it
 # (sim/missions.py --save-crops-for 2, bit-identical to the 40-flight run).
 SHOW_KIND, SHOW_ID = "spree", 2
-SHOW_TITLE = "Flying the Spree through central Berlin, camera only"   # the section's heading
+SHOW_TITLE = "Berlin Spree corridor mission, camera only, GPS-denied"   # the section's heading
 SHOW_CROPS_SRC = REPO_ROOT / "sim" / "out" / "mission_crops" / f"{SHOW_KIND}_f{SHOW_ID}"
 SHOW_CROPS_REL = f"assets/sim/missions/{SHOW_KIND}/crops_f{SHOW_ID}/"
 MISSION_FLIGHTS_SRC = REPO_ROOT / "sim" / "out" / "mission_flights"
