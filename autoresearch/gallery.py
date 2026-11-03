@@ -4871,14 +4871,6 @@ on board, just a ${FLIGHT_COMPUTER_USD} flight computer?</h2>
 
 <div class="stat-hero"><b class="num">{fl_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
 <span>flights arrive within 100&nbsp;m</span></div>
-<div class="stats">
-<div class="stat"><b class="num">{fl_med:.0f} m</b>
-<span>median miss</span></div>
-<div class="stat"><b class="num">{fl_dr_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
-<span>without camera</span></div>
-<div class="stat"><b class="num">{fl_fail}</b>
-<span>miss</span></div>
-</div>
 <div class="stat-hero frames">
   <span><b>{usable_s2}</b> of camera frames give a usable fix</span>
   {scale_svg}
