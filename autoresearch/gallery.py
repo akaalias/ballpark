@@ -3919,7 +3919,7 @@ each pass overwrites the previous one. Left for the loop to find.</p></div>
 
 <section class="nb-day">
 <h2>30 October 2026</h2>
-<p class="daysub">The loop restarts, locally</p>
+<p class="daysub">The loop restarts, locally, and teaches the model three photographs at once</p>
 
 <div class="nb-row"><span class="nb-time">11:00</span>
 <p class="nb-text"><b>A month on hold, then go.</b> The laptop was running
@@ -3939,6 +3939,313 @@ numbered the new baseline with the previous era&rsquo;s prefix. Every page
 now reads the live era from the experiment database on each render.
 Caught by the human looking at the pictures, not by a test &mdash;
 again.</p></div>
+
+<div class="nb-row"><span class="nb-time">11:36</span>
+<p class="nb-text"><b>Reuse is encouraged, and Berlin is the only customer.</b>
+Two additions to the design brief from the human. Old ideas were already
+&ldquo;open again&rdquo;; now the agent is invited to lift them, told where
+every earlier design and its source survive, and asked to name what it builds
+on. And a technique that works for Berlin and nowhere else counts as complete
+success. A deep-research pass on JEPA-style world models came back the same
+morning with one usable lesson: not an architecture but a training
+discipline, predicting the representation of a related view &mdash; and the
+harness holds the richest related view any of those papers had, three
+pixel-aligned photographs of the same ground. Its ranked shortlist went into
+the design agent&rsquo;s library.</p></div>
+
+<div class="nb-row"><span class="nb-time">12:20</span>
+<p class="nb-text"><b>The forgetting is fixed in one move.</b> Experiment 2
+trains every step on the same places in all three photographs at once,
+instead of one photograph per pass. The model now knows all three: 95.2%,
+96.0% and 94.2% usable on the training photographs, where the baseline knew
+only the last one it saw. On the held-out 2024 photograph: 1.651 &rarr;
+<b>1.583</b>, usable 3.3% &rarr; 7.0%, still confidently wrong on 65%.
+Knowing three photographs pixel by pixel does not give the fourth. The gap
+between those two numbers is now the whole problem.</p></div>
+
+<div class="nb-row"><span class="nb-time">&nbsp;</span>
+<p class="nb-text"><b>The research shortlist&rsquo;s first pick fails; the
+plainest idea works.</b> Experiment 3 asked the trunk to describe a place the
+same way in every photograph (the shortlist&rsquo;s first item) and scored
+1.648, reverted. Experiment 4 re-photographs every training view at random
+&mdash; brightness, contrast, gamma, colour balance, blur, sensor noise
+&mdash; so the fingerprint of one survey stops being a usable solution:
+<b>1.271</b>, kept, false fixes 65% &rarr; 39%. Experiment 5 widened the
+trunk&rsquo;s view to the whole 128&nbsp;m frame: 1.298, reverted, though it
+won back much of the memorisation on the training photographs that
+experiment&nbsp;4 had cost. The held-out number did not care.</p></div>
+
+<div class="nb-row"><span class="nb-time">&nbsp;</span>
+<p class="nb-text"><b>Two display rules.</b> The chart&rsquo;s dots stopped
+showing the keep/revert verdict made at the time: black now means the dot
+lowered the running best on today&rsquo;s ruler, and the old verdict moves
+to the tooltip. And the architecture figures, switched off in July for cost,
+came back &mdash; but only for experiments that became the new best. That
+second rule lasted a day.</p></div>
+
+</section>
+
+<section class="nb-day">
+<h2>31 October 2026</h2>
+<p class="daysub">Every experiment gets its figure; one experiment takes three hours, and the code is the reason</p>
+
+<div class="nb-row"><span class="nb-time">14:05</span>
+<p class="nb-text"><b>Every experiment is illustrated, reverted ones
+too.</b> The human wanted all of them drawn; experiments 3, 4 and 5 were
+backfilled and <code>DRAW_FIGURES=1</code> became the default again. The
+backfill found a hazard: a figure agent ran an archived reference script
+whose database write was unconditional, and it silently replaced this
+era&rsquo;s figures for experiments 1&ndash;4 with mission-era drawings.
+Restored from each run&rsquo;s own record; the write now needs an explicit
+flag. The chart also gained a thin dashed line per era, that era&rsquo;s own
+running best, kept &ldquo;for now&rdquo;.</p></div>
+
+<div class="nb-row"><span class="nb-time">16:29</span>
+<p class="nb-text"><b>Hours per experiment, and the M1 overheating.</b>
+Three photographs per epoch tripled the work, and the human asked for a
+cheap way to train elsewhere. The research answered a different question
+first: the training code used about 3&ndash;4% of the M1&rsquo;s GPU. Every
+crop was rotated in PIL on one CPU core, and each step stopped the GPU up to
+eight times to read numbers back. That was true of every experiment of the
+era, not one; the loop never noticed because it scores accuracy, not
+wall-clock time. Without fixing the code any cloud GPU would buy only
+3&ndash;5&times;. Recommended service: AWS, a GPU machine created and
+destroyed per run, about $0.10&ndash;0.60 an experiment.</p></div>
+
+<div class="nb-row"><span class="nb-time">17:49</span>
+<p class="nb-text"><b>Experiment 6: blending the surveys.</b> Every
+training view became a per-pixel mixture of the three photographs of the
+same place, so the model would learn the continuum between surveys. 1.288,
+reverted, after 174 minutes on the laptop.</p></div>
+
+<div class="nb-row"><span class="nb-time">19:15</span>
+<p class="nb-text"><b>The code fix lands between experiments.</b> Training
+now keeps the three photographs on the GPU and cuts and rotates each batch
+there, matching the frozen pipeline&rsquo;s crops within 1/255. A full
+retrain of the champion: 6.5&nbsp;min per epoch against 12.8, and 1.246
+against the original 1.271, inside run-to-run noise. Part of the old 12.8
+was the fanless laptop throttling on long runs. The AWS account was set up
+the same evening; a new account has no GPU quota, so a request was filed at
+18:14 and approved at 20:49.</p></div>
+
+</section>
+
+<section class="nb-day">
+<h2>1 November 2026</h2>
+<p class="daysub">Training moves to AWS, two frozen rules turn out to be vetoing the best models, and borrowed eyes take the score from 0.96 to 0.16</p>
+
+<div class="nb-row"><span class="nb-time">11:58</span>
+<p class="nb-text"><b>Ten times faster for fifteen cents.</b> The first AWS
+run retrained the champion on an L4 GPU in <b>305&nbsp;s</b>, against
+52&nbsp;minutes on the M1: 9.6&nbsp;minutes door to door, about $0.15, same
+score. Only the three training photographs are uploaded; the older Modal
+path, which had shipped all four, was fixed the same way and now refuses
+to run if the 2024 photograph is among them. A Modal A100 was faster still (151&nbsp;s,
+$0.09), and three AWS GPUs were benchmarked: the biggest trained only
+1.4&times; faster than the L4, so this small model is bound by per-step
+overhead, not the card. Decision (Alexis): AWS is the primary backend;
+Modal stays a backup inside its $30 monthly free credit.</p></div>
+
+<div class="nb-row"><span class="nb-time">12:44</span>
+<p class="nb-text"><b>A committee halves the false fixes; four ideas about
+invariance do not move the held-out photograph.</b> Experiment 7 trains two
+localizers that must agree before a fix is trusted: <b>1.096</b>, kept,
+false fixes 39% &rarr; 17%, but usable only 7.5%. Experiments 8&ndash;10
+&mdash; distilling a frozen DINOv2 teacher across surveys, penalising a
+place&rsquo;s spread across surveys, repainting a median of the three
+photographs &mdash; all reverted, one collapsing outright. A design-stage
+probe explained experiment 3 in passing: on the champion, features of two
+<i>different</i> places already had cosine 0.70, so asking the same place
+to match across surveys had demanded almost nothing. Held-out usable sat at
+7&ndash;12.5% while training-photograph usable ranged 17&ndash;96%: the gap
+was survey, not fit. Meanwhile the laptop went to sleep at midday and
+stalled the agents, which still run on it; the loop now keeps it awake.</p></div>
+
+<div class="nb-row"><span class="nb-time">17:54</span>
+<p class="nb-text"><b>The era&rsquo;s best model had been recorded as a
+failure.</b> Experiment 11 replaced the cell classifier with a cosine head,
+one direction per tile: 0.963 &mdash; the first model of the era better than
+silence, with false fixes at 7%. The scorer recorded it as failed, because a
+rule from the bootstrap commit threw out any model confident on fewer than
+20% of frames. That floor dates from when the score was an error statistic
+and abstaining could game it; the mission score already charges for silence.
+Alexis chose the replacement: a model fails only if it gives no usable
+fix at all.
+Experiment 11 was re-scored from its saved model and promoted; the history
+was re-measured for rows failed only by the floor.</p></div>
+
+<div class="nb-row"><span class="nb-time">18:34</span>
+<p class="nb-text"><b>A design bake-off, and the breakthrough it found by
+accident.</b> Four models wrote a design for the same prompt; a fresh agent
+graded them blind. Opus 5.5 ranked first in 3.9&nbsp;minutes; Fable 5.1, the
+incumbent, took 11&ndash;15&nbsp;minutes for an equal or lower grade.
+Design moved to Opus. The reviewer also re-measured the loop&rsquo;s own
+experiment 12 &mdash; an ImageNet-pretrained MobileNetV3 trunk in place of
+the from-scratch one &mdash; and found it over the 4&nbsp;MiB size limit by
+about 150&nbsp;KB. That limit had no derivation behind it and weighed the
+fp32 file, while the chip runs int8. Re-derived from current ESP32-P4 boards
+(16&nbsp;MB flash): half the flash for the model, 8&nbsp;MiB int8, written
+as 32&nbsp;MiB fp32. Experiment 12, re-scored: <b>0.560</b>, usable 10.75%
+&rarr; <b>49.5%</b>. Two frozen rules written for an older question had
+each vetoed the era&rsquo;s best model, within the same hour.</p></div>
+
+<div class="nb-row"><span class="nb-time">19:10</span>
+<p class="nb-text"><b>Figures: always, and better.</b> At 15:54 the
+always-draw rule went into the project&rsquo;s instructions as a hard rule,
+after it had been suggested away once more to save usage. The figure agent
+moved off the critical path, at the human&rsquo;s prompting: it now draws
+in the background while the experiment trains, with retries instead of a
+silent miss. Then the human noticed the era&rsquo;s figures had degraded
+&mdash; overlapping text, chaotic lines. Cause: an unset variable meant every
+one had been drawn by Sonnet 5, not the model intended, and the checker
+passed 11 of 13 messy figures. Opus now draws, renders its own figure and
+looks at it; the checker catches off-canvas content, labels on shapes and
+lines through labels, and holds the camera frame and the output on the
+centre line. All 14 were redrawn.</p></div>
+
+<div class="nb-row"><span class="nb-time">21:47</span>
+<p class="nb-text"><b>Borrowed eyes, then better borrowed eyes.</b> With
+Opus designing, the loop kept four in a row: two deeper pretrained blocks
+(<b>0.435</b>), style mixing across surveys inside the trunk (<b>0.395</b>),
+the 128&nbsp;px frame enlarged to 224&nbsp;px, ImageNet&rsquo;s own scale,
+before the trunk (<b>0.293</b>), and a stronger MobileNetV2 trunk
+(<b>0.155</b>, 86.75% usable, 2.25% false). Each step made training slower: 7&ndash;17&nbsp;minutes on the GPU for
+the small and first pretrained models, 83 for MobileNetV2. Asked about it, Alexis ruled
+out a time budget: heavier models are what is paying off. Experiment 17,
+ring pooling, crashed 30&nbsp;s into training on a missing import in the
+agent&rsquo;s own change; the loop re-ran it as 18 (0.158, reverted). The
+loop&rsquo;s target was raised to 100 experiments.</p></div>
+
+<div class="nb-row"><span class="nb-time">&nbsp;</span>
+<p class="nb-text"><b>Two things planned for after the era, decided
+now.</b> An altitude era: usable fixes from 25 to 100&nbsp;m above ground,
+the model told its barometric height, altitude in the score and the worst
+altitude band as the primary &mdash; a new ruler, so a new era, opened only
+once this one reaches its target. And a simulated-flight phase on ArduPilot
+SITL with its simulated GPS switched off and the model as the only position
+source, the camera cut from the held-out 2024 photograph. No physical
+flying.</p></div>
+
+</section>
+
+<section class="nb-day">
+<h2>2 November 2026</h2>
+<p class="daysub">EfficientNet-B0 and weight averaging reach 93% usable on the held-out photograph; then seven ideas fail to beat it, and three of the failures were the cloud&rsquo;s</p>
+
+<div class="nb-row"><span class="nb-time">04:02</span>
+<p class="nb-text"><b>The overnight champion.</b> At 01:59 an
+EfficientNet-B0 trunk (Apache-2.0) replaced MobileNetV2: <b>0.085</b>. At
+04:02 experiment 20 exported the average of the weights visited over the
+second half of training instead of the last step: <b>0.078</b>. On the
+2024 photograph it never saw: <b>93.0% usable, 0.75% confidently wrong</b>,
+median miss 36&nbsp;m. On the three it trained on: 100% usable, no false
+fixes. The model is 31.7&nbsp;MB fp32, inside the new 32&nbsp;MiB limit.
+The era opened at 1.651.</p></div>
+
+<div class="nb-row"><span class="nb-time">&nbsp;</span>
+<p class="nb-text"><b>A plateau.</b> Experiments 21&ndash;27 all reverted:
+training the head on a frozen trunk first (0.090), continuous vantages
+(0.103), belief maps that must agree across surveys (0.090), Noisy Student
+weights for the same trunk (0.083), and patches of one survey pasted into
+another (0.110). Continuous vantages was the idea the rural detour had
+designed in July and never trained; trained at last, it did not help here.
+Every attempt landed between 90.75% and 92.5% usable. Each now trains for
+about two hours; one spot machine was reclaimed after 104 minutes and the
+run started over.</p></div>
+
+<div class="nb-row"><span class="nb-time">13:44</span>
+<p class="nb-text"><b>Three failures were not the ideas&rsquo;.</b> Of the
+three experiments recorded as failed overnight, none had tested its idea.
+Experiment 17 was a code bug. Experiment 21 finished training on AWS, but the
+laptop lost DNS while polling and gave up; scored by hand from the
+recovered model it came in at 0.090, so the revert was right for the wrong
+reason. Experiment 24 never reached a GPU: no capacity in any Frankfurt
+zone. The launcher now retries through network drops and waits up to
+90&nbsp;minutes for capacity, and a cloud failure is recorded as <i>not
+tested</i>, drawn as a grey ring, never as a refuted idea. The loop re-ran
+24 as 25 on its own. Alexis kept the original records of 21 and 24.</p></div>
+
+<div class="nb-row"><span class="nb-time">14:01</span>
+<p class="nb-text"><b>The champion existed only on the laptop.</b> Since
+experiment 19 every model is 31.7&nbsp;MB, over the 25&nbsp;MB guard the
+loop uses to keep runaway files out of git. Five models, the current best
+among them, had been moved to a folder that is never committed. The guard
+is now 40&nbsp;MB, above the scorer&rsquo;s own size limit and below the
+100&nbsp;MB files it exists to stop, and the models are committed.</p></div>
+
+<div class="nb-row"><span class="nb-time">14:13</span>
+<p class="nb-text"><b>The flight replay flies the new champion over the
+photograph it never saw.</b> Same 100 routes and the same wind, the 2024
+photograph as both camera and background map; the comparison is the July
+champion flown over its own training photograph. Arrivals within 100&nbsp;m:
+91 &rarr; 95. Worst flight: 7.4&nbsp;km &rarr; 212&nbsp;m. False fixes: 207
+&rarr; 59. Median miss about the same, 45 &rarr; 47&nbsp;m. Would 98% usable
+land closer? Probably not: the aircraft declares arrival on its own
+estimate, and each fix is typically 30&ndash;40&nbsp;m off, which comes from
+the 128&nbsp;m map cells, not from how often the model answers. The score
+counts any fix inside 100&nbsp;m as fully usable, so the loop has no reason
+to sharpen it.</p></div>
+
+</section>
+
+<section class="nb-day">
+<h2>3 November 2026</h2>
+<p class="daysub">Ideas for a different loop, a second loop by accident, six kinds of mission, and an experiment cut off by its own safety switch</p>
+
+<div class="nb-row"><span class="nb-time">09:58</span>
+<p class="nb-text"><b>Seven reverts in a row suggest a different
+harness.</b> Two tickets from the human, both about the loop rather than the
+model. Smaller bets: screen each hypothesis on a small piece of the map,
+iterate there while the signal is negative, and pay for a full-map run only
+when it is positive. Parallel lineages: several populations from different
+seeds or researcher personalities, each with its own champion, since one
+lineage climbs one hill. On 1 November a look at Weco&rsquo;s published
+search tree had found that a tree of experiments need not mean parallel
+runs; these tickets ask whether it should. Both open, exploration
+first.</p></div>
+
+<div class="nb-row"><span class="nb-time">10:41</span>
+<p class="nb-text"><b>Two loops at once.</b> Experiment 28 was training
+when a second launch of the loop started and, before it exited, committed
+the running experiment&rsquo;s code as a checkpoint. Had experiment 28 been
+reverted, that commit would have made its change the new baseline in
+silence. Found because the dashboard showed a design phase while the GPU was
+training; repaired by hand, nothing pushed. A lock against a second launch
+is ticketed.</p></div>
+
+<div class="nb-row"><span class="nb-time">12:39</span>
+<p class="nb-text"><b>Six more missions in the simulator.</b> Return home,
+a four-waypoint tour, a five-minute loiter, a survey grid, a cold start
+with no idea of position, and the Spree corridor: 40 flights each with the
+champion, each against a no-camera control in the same weather. Two
+findings. Error does not build up: the tour&rsquo;s median miss per waypoint
+was 68, 56, 54 and 56&nbsp;m; longer missions fail more only because they
+give one bad fix more chances. And false fixes cluster in places: 126 of
+the Spree&rsquo;s 128 sit in two stretches, and 18% of fixes along the
+Spreebogen are confidently wrong. Of 58 failed flights across all missions,
+51 had a false fix. Cold start located itself on the first frame (median),
+98% success.</p></div>
+
+<div class="nb-row"><span class="nb-time">13:02</span>
+<p class="nb-text"><b>Experiment 28 was cut off by its own safety
+switch.</b> It enlarged the frame to 288&nbsp;px instead of 224 before the
+EfficientNet trunks, so small structures reach the borrowed filters closer
+to the scale they learned on. Training was healthy, at about 23&nbsp;minutes
+an epoch, when the machine&rsquo;s 150-minute shutdown fired at epoch 6 of
+8. No model came back, and the run was recorded as a refuted idea &mdash;
+exactly what the previous day&rsquo;s fix was meant to prevent. The
+shutdown is a forgotten-machine guard, not a training budget: raised to
+480&nbsp;minutes, and hitting it now counts as <i>not tested</i>. Experiment
+28 is being retrained with its exact code; no result yet.</p></div>
+
+<div class="nb-row"><span class="nb-time">13:12</span>
+<p class="nb-text"><b>Not merging yet.</b> The era has its answer to the
+founding question &mdash; 93% usable on a photograph the model never saw,
+against 0% for the July champion &mdash; but the next step is a new way of
+running experiments, so <code>capture-holdout</code> stays a branch. The
+published site still tells the July story; a ticket collects everything it
+needs before the merge: the overview, the research evolution, this
+notebook, the docs, and the pre-merge routine.</p></div>
 
 </section>
 """
@@ -3966,7 +4273,7 @@ tried; this page is the surrounding story.</p></header>
 <div class="nb-wrap">
 {NOTEBOOK_HTML}
 <p class="nb-source">Compiled from git history and Claude Code session
-transcripts, 20 July &ndash; 30 October 2026 &mdash; condensed for readability; see
+transcripts, 20 July &ndash; 3 November 2026 &mdash; condensed for readability; see
 the <a href="index.html">research log</a> for the complete,
 machine-generated experiment record.</p>
 </div>

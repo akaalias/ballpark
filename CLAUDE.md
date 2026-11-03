@@ -121,15 +121,16 @@ with its exact code (local branch `retry-exp28`); its record still reads
 - **Compute:** `REMOTE_TRAIN=1` trains on AWS (`infra/aws_train.py`,
   g6.xlarge, only the training photographs are shipped). Cloud failures
   and the 480-min safety shutdown are recorded NOT TESTED (#13, #22).
-  Modal/RunPod upload the eval photograph — do not use them here.
+  Modal is a backup (refuses the eval photograph too); RunPod still
+  uploads it — do not use RunPod here.
 - **Flight sim** flies the exp-20 model over the 2024 photograph: 95/100
   A→B arrivals, plus six mission types (#21, `sim/missions.py`).
 - **Not merging yet** (Alexis, 2026-11-03): a new take on experiments comes
   first. Issue #23 collects the site refresh that goes with the eventual
   merge; the pages on this branch are being brought up to this era now.
-- Open hazards: a second concurrent `loop.sh` launch is not guarded (#20);
-  models over 25 MB are quarantined out of commits (#14) and restored by
-  hand.
+- Open hazard: a second concurrent `loop.sh` launch is not guarded (#20).
+  (Fixed: the commit-size quarantine is 40 MB, above the 32 MiB model gate,
+  #14.)
 
 ### NEXT ERA (planned, not started): altitude range 25-100 m — issue #10
 

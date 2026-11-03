@@ -124,8 +124,8 @@ Two older remote paths are dormant:
 
 | | status |
 |---|---|
-| **Modal** (`REMOTE_BACKEND=modal`) | stateless per-area trainer, never touches git. Backup only, capped at its $30 monthly free credit. **Do not use it on this branch until fixed: it uploads all of `data/berlin`, including the held-out eval photograph.** |
-| **RunPod** (`infra/runpod.sh`, `REMOTE_BACKEND=runpod`) | **abandoned 2026-07-23** after three days of stuck commits and merge conflicts; it has the same eval-photograph upload problem. Scripts kept for reference; do not restart it without reading `docs/infra.md` first. |
+| **Modal** (`REMOTE_BACKEND=modal`) | stateless per-area trainer, never touches git, and like the AWS path refuses to ship the eval photograph. Backup only, capped at its $30 monthly free credit. |
+| **RunPod** (`infra/runpod.sh`, `REMOTE_BACKEND=runpod`) | **abandoned 2026-07-23** after three days of stuck commits and merge conflicts. **It still rsyncs all of `data/berlin`, the held-out eval photograph included, so it must not be used on this branch.** Scripts kept for reference; do not restart it without reading `docs/infra.md` first. |
 
 The rule that came out of that period and still holds: **one git writer,
 always.** The laptop commits; a remote may only train and hand back
