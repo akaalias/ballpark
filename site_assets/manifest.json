@@ -179,8 +179,11 @@
  "runs/20261102_150521_experiment27/samples/berlin_truedop_2024.png": "3e9d95cbefd920901a17.png",
  "runs/20261102_150521_experiment27/worked/frame.png": "4c26bcae1fdcc72ed779.png",
  "runs/20261102_150521_experiment27/worked/map.png": "8e156119dfc9083e0c09.png",
+ "runs/20261103_084926_experiment28/heatmaps/heatmap_berlin.png": "f26ae262337263b0f30e.jpg",
  "runs/20261103_084926_experiment28/samples/berlin_bb_dop20.png": "6f7ebe2f76fa67b61d51.png",
  "runs/20261103_084926_experiment28/samples/berlin_truedop_2022.png": "d6cce25f96029fd3dd46.png",
  "runs/20261103_084926_experiment28/samples/berlin_truedop_2023.png": "33e82b2760c4f25bb8af.png",
- "runs/20261103_084926_experiment28/samples/berlin_truedop_2024.png": "3e9d95cbefd920901a17.png"
+ "runs/20261103_084926_experiment28/samples/berlin_truedop_2024.png": "3e9d95cbefd920901a17.png",
+ "runs/20261103_084926_experiment28/worked/frame.png": "4c26bcae1fdcc72ed779.png",
+ "runs/20261103_084926_experiment28/worked/map.png": "8e156119dfc9083e0c09.png"
 }

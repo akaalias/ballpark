@@ -118,10 +118,10 @@ randomisation (4) → 1.096 two-member committee (7) → 0.963 cosine tile head
 (11) → **0.560 ImageNet-pretrained MobileNetV3 trunk (12)** → 0.435 (13) →
 0.395 cross-survey style mixing (14) → 0.293 input resized to 224 px (15) →
 0.155 MobileNetV2 (16) → 0.085 EfficientNet-B0 (19) → 0.078 weight
-averaging (20). Experiments 21–27 did not beat it. Experiment 28 (288 px
-input) was cut off by the AWS safety shutdown (#22) and is being retried
-with its exact code (local branch `retry-exp28`); its record still reads
-1e9 until the retry is scored.
+averaging (20). Experiments 21–28 did not beat it. Experiment 28 (288 px
+input) was first cut off by the AWS safety shutdown (#22), then retrained
+with its exact code and scored 0.100 (usable 90.75%, abstain 8.5%, 82 ms);
+its record was corrected in place from the 1e9 placeholder.
 
 - **Agents:** design and implementation both on Opus 5.5 (bake-off #6).
 - **Compute:** `REMOTE_TRAIN=1` trains on AWS (`infra/aws_train.py`,

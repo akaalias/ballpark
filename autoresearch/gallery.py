@@ -4269,8 +4269,11 @@ an epoch, when the machine&rsquo;s 150-minute shutdown fired at epoch 6 of
 8. No model came back, and the run was recorded as a refuted idea &mdash;
 exactly what the previous day&rsquo;s fix was meant to prevent. The
 shutdown is a forgotten-machine guard, not a training budget: raised to
-480&nbsp;minutes, and hitting it now counts as <i>not tested</i>. Experiment
-28 is being retrained with its exact code; no result yet.</p></div>
+480&nbsp;minutes, and hitting it now counts as <i>not tested</i>. Retrained
+the same afternoon with its exact code, experiment 28 needed 181 minutes and
+scored <b>0.100</b>: usable 90.75% against the champion&rsquo;s 93.0%, the
+same 0.75% false fixes, more abstentions, and 1.7&times; slower. A real
+revert this time, and a measured one.</p></div>
 
 <div class="nb-row"><span class="nb-time">13:12</span>
 <p class="nb-text"><b>Not merging yet.</b> The era has its answer to the
@@ -5910,7 +5913,8 @@ _EVO_TIPS_ADD = {'t12': {'t': 'flight test: 91/100 arrive',
               "the machine's own 150-minute safety shutdown fired at epoch 6 of 8, and it was "
               'filed as a refuted idea. The cap is now 480 minutes, a guard against forgotten '
               'machines rather than a training budget, and hitting it counts as NOT TESTED. '
-              'Experiment 28 is being retrained.',
+              'Retrained with its exact code it needed 181 minutes and scored 0.100 '
+              '(champion 0.078): a real revert, measured this time.',
          'k': 'incident'},
  'm7': {'t': 'the code was the bottleneck, not the laptop',
         'd': 'Asked for a cheaper remote GPU, the research found the training script rotating '

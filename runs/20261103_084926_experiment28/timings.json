@@ -1,8 +1,8 @@
 {
   "agent_design_s": 198,
   "agent_impl_s": 55,
-  "train_wall_s": 10072,
-  "score_s": 0,
+  "train_wall_s": 10881,
+  "score_s": 158,
   "samples_s": 4,
   "holdout_s": 0,
   "gallery_s": 1,

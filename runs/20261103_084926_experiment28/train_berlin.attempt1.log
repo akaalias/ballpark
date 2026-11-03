@@ -1,0 +1,47 @@
+[aws] data package data-berlin-34864778e30545c5.tar: 4 files (308 MB), train captures ['bb_dop20', 'truedop_2022', 'truedop_2023'], eval ['truedop_2024'] excluded
+[aws] preflight: download and upload links work
+[aws] AMI ami-0ae1b51cd26c93d9f Deep Learning OSS Nvidia Driver AMI GPU PyTorch 2.14 (Ubuntu 26.04) 20261031
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] no capacity for g6.xlarge anywhere in the region
+[aws] no capacity anywhere; waiting 300s and trying again (1 of 90 min waited)
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] no capacity for g6.xlarge anywhere in the region
+[aws] no capacity anywhere; waiting 300s and trying again (8 of 90 min waited)
+[aws] spot eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1c: no capacity (InsufficientInstanceCapacity), trying next
+[aws] spot eu-central-1a: no capacity (InsufficientInstanceCapacity), trying next
+[aws] on-demand eu-central-1b: no capacity (InsufficientInstanceCapacity), trying next
+[aws] launched i-067a8ed339edda5be g6.xlarge on-demand in eu-central-1c at ~$1.006/h
+[box] boot 2026-11-03T09:09:32Z
+[box] downloads done 2026-11-03T09:09:37Z
+
+[notice] A new release of pip is available: 26.2.2 -> 26.3
+[notice] To update, run: pip install --upgrade pip
+NVIDIA L4, 23034 MiB, 595.112.07
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[box] torch 2.14.1+cu130 cuda True
+/opt/pytorch/lib/python3.13/site-packages/torch/cuda/__init__.py:68: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[berlin] training buckets: ['bb_dop20', 'truedop_2022', 'truedop_2023']
+[berlin] trunk: efficientnet_b0 features[0..7] IMAGENET1K_V1 loaded strict from effb0_features7.pt x 2 members, input 128->288 px bilinear (in-graph), lifts 112->56 @18x18 + 320->56 @9x9 -> 112, trunk lr x0.1, MixStyle after blocks [2, 3, 4] p=0.5 alpha=0.1 (train only), amp=bf16 autocast on member forward (cuda only)
+[berlin] 72712 lattice positions, 2970 cells, device=cuda, weight averaging from epoch 5 every 4 steps
+[berlin] epoch 1/8 loss=16.9581 top1=0.5291 mean_max_softmax=0.4734 views=218136 lr=9.66e-04 trunk_lr=9.66e-05 top1_by_capture={'bb_dop20': 0.5164, 'truedop_2022': 0.5272, 'truedop_2023': 0.5436} member_top1=[0.4823, 0.4784] agree_rate=0.4592 xs_cos_same=[0.7512, 0.751] xs_cos_diff=[0.0103, 0.0118] wpv=[0.1823, 0.1822] xsurvey_agree=[0.6836, 0.7168] clean_top1=[[0.7305, 0.7266, 0.7383], [0.7129, 0.7266, 0.7344]]
+[berlin] epoch 2/8 loss=9.3685 top1=0.8180 mean_max_softmax=0.7874 views=218136 lr=8.68e-04 trunk_lr=8.68e-05 top1_by_capture={'bb_dop20': 0.8085, 'truedop_2022': 0.8187, 'truedop_2023': 0.8267} member_top1=[0.7905, 0.7898] agree_rate=0.7959 xs_cos_same=[0.7601, 0.7579] xs_cos_diff=[0.0093, 0.0134] wpv=[0.1802, 0.1817] xsurvey_agree=[0.75, 0.7676] clean_top1=[[0.7773, 0.7852, 0.8125], [0.7676, 0.793, 0.8008]]
+[berlin] epoch 3/8 loss=7.4649 top1=0.8575 mean_max_softmax=0.8358 views=218136 lr=7.22e-04 trunk_lr=7.22e-05 top1_by_capture={'bb_dop20': 0.85, 'truedop_2022': 0.8591, 'truedop_2023': 0.8633} member_top1=[0.8367, 0.8364] agree_rate=0.8392 xs_cos_same=[0.7691, 0.7683] xs_cos_diff=[0.0076, 0.0117] wpv=[0.1741, 0.1746] xsurvey_agree=[0.7852, 0.8086] clean_top1=[[0.8281, 0.8438, 0.8496], [0.832, 0.8457, 0.8613]]
+[berlin] epoch 4/8 loss=6.5182 top1=0.8801 mean_max_softmax=0.8525 views=218136 lr=5.50e-04 trunk_lr=5.50e-05 top1_by_capture={'bb_dop20': 0.8745, 'truedop_2022': 0.8798, 'truedop_2023': 0.886} member_top1=[0.8594, 0.8603] agree_rate=0.8556 xs_cos_same=[0.7776, 0.7767] xs_cos_diff=[0.0055, 0.0098] wpv=[0.1696, 0.1718] xsurvey_agree=[0.8105, 0.8555] clean_top1=[[0.8516, 0.8691, 0.8691], [0.8711, 0.875, 0.8945]]
+[berlin] epoch 5/8 loss=5.9667 top1=0.8928 mean_max_softmax=0.8610 views=218136 lr=3.78e-04 trunk_lr=3.78e-05 top1_by_capture={'bb_dop20': 0.8885, 'truedop_2022': 0.8916, 'truedop_2023': 0.8982} member_top1=[0.8738, 0.8738] agree_rate=0.8656 xs_cos_same=[0.781, 0.7808] xs_cos_diff=[0.0058, 0.0072] wpv=[0.167, 0.1687] xsurvey_agree=[0.834, 0.8477] clean_top1=[[0.877, 0.8711, 0.9043], [0.8828, 0.875, 0.8965]]
+[berlin] epoch 6/8 loss=5.6136 top1=0.9028 mean_max_softmax=0.8663 views=218136 lr=2.32e-04 trunk_lr=2.32e-05 top1_by_capture={'bb_dop20': 0.8988, 'truedop_2022': 0.9028, 'truedop_2023': 0.9068} member_top1=[0.8842, 0.8841] agree_rate=0.8728 xs_cos_same=[0.787, 0.7853] xs_cos_diff=[0.0044, 0.007] wpv=[0.1645, 0.1671] xsurvey_agree=[0.8359, 0.8301] clean_top1=[[0.8789, 0.8984, 0.9004], [0.875, 0.9062, 0.918]]
+[aws] machine shutting-down without a result: Client.InstanceInitiatedShutdown: Instance initiated shutdown
+[aws] machine i-067a8ed339edda5be terminated after 154.2 min (on-demand, ~$2.58)
+[aws] FAILED (failed)
