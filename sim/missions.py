@@ -34,6 +34,9 @@ Usage:
   .venv/bin/python -m sim.missions --mission loiter --flights 40 --seed 1
   .venv/bin/python -m sim.missions --mission all --flights 40 --seed 1
   .venv/bin/python -m sim.missions --mission all --flights 40 --seed 1 --no-vision
+  # full tracks for the page (local-only, gitignored):
+  .venv/bin/python -m sim.missions --mission all --flights 40 --seed 1 \
+      --flight-dir sim/out/mission_flights
 """
 
 import argparse
@@ -195,6 +198,11 @@ def run(kind, args, meta, img, sess):
                         vision=not args.no_vision, **kw)
         f["flight_id"] = i
         f["success"] = success(kind, f)
+        f["mission"] = kind
+        if args.flight_dir:                # full record, track included (local-only)
+            d = args.flight_dir / kind
+            d.mkdir(parents=True, exist_ok=True)
+            (d / f"f{i}.json").write_text(json.dumps(f))
         if i >= args.keep_tracks:          # keep the file small; tracks only for the first few
             f.pop("track")
         flights.append(f)
@@ -224,6 +232,9 @@ def main():
     ap.add_argument("--no-vision", action="store_true")
     ap.add_argument("--keep-tracks", type=int, default=3)
     ap.add_argument("--out-dir", type=Path, default=Path("sim/out/missions"))
+    ap.add_argument("--flight-dir", type=Path,
+                    help="also write each flight's FULL record as <dir>/<mission>/f<i>.json "
+                         "(the flight-path page slims these into assets/sim/missions/)")
     args = ap.parse_args()
 
     meta = load_meta(args.area)

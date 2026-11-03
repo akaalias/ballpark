@@ -67,7 +67,8 @@ FP_CSS = """
 .fp-read b{color:var(--ink);font-variant-numeric:lining-nums tabular-nums}
 .fp-controls{display:flex;gap:12px;align-items:center;margin:12px 0 0;
   font:13px var(--serif);color:var(--muted);flex-wrap:wrap}
-.fp-controls #flightsel{max-width:46%}
+.fp-controls #flightsel{max-width:40%}
+.fp-controls #missionsel{max-width:24%}
 .fp-controls button{font:600 12px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.07em;color:var(--paper);
   background:var(--ink);border:none;padding:7px 16px;cursor:pointer}
@@ -115,6 +116,18 @@ table.fp-fail th{font:600 10.5px var(--serif);font-feature-settings:"smcp" 1;
 table.fp-fail td{border-bottom:1px solid var(--rule-soft);padding:5px 14px}
 table.fp-fail td.num{font-variant-numeric:lining-nums tabular-nums}
 table.fp-fail .hold{color:var(--ochre);font-size:12.5px}
+table.fp-mis{max-width:100%}
+table.fp-mis td{vertical-align:top}
+.fp-mis .mis-asks{font-size:13px;color:#4a473e;max-width:330px;margin-top:2px}
+.fp-mis .mis-ok{font-size:12px;color:var(--muted);font-style:italic;margin-top:2px}
+.fp-mis td.rp{white-space:nowrap}
+.fp-rp{font:600 11px var(--serif);font-feature-settings:"smcp" 1;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--paper);background:var(--ink);border:none;
+  padding:5px 10px;cursor:pointer;margin:0 0 4px}
+.fp-rp.fail{background:var(--accent)}
+.fp-rp:hover{opacity:.85}
+@media(max-width:700px){table.fp-mis td,table.fp-mis th{padding:5px 6px}
+  .fp-mis td.rp{white-space:normal}}
 .fp-honest{max-width:780px;margin:16px auto 0;display:grid;
   grid-template-columns:1fr 1fr;gap:6px 34px;font:14.5px/1.65 var(--serif)}
 .fp-honest h3{grid-column:span 1;font:600 11px var(--serif);
@@ -220,6 +233,255 @@ def build_flight_assets():
         (dst / p.name).write_text(json.dumps(slim, separators=(",", ":")))
 
 
+MISSIONS_OUT = REPO_ROOT / "sim" / "out" / "missions"
+MISSION_FLIGHTS_SRC = REPO_ROOT / "sim" / "out" / "mission_flights"
+# (key, picker name, what it asks) — order of the picker and the table
+MISSION_KINDS = [
+    ("return_home", "Return home",
+     "Fly 2+ km out to B, then back to the launch point: the lost-link failsafe. Home has to be found again from the opposite heading."),
+    ("tour", "Waypoint tour",
+     "Four spots in a row, 1&ndash;3 km apart. Does the error build up from leg to leg?"),
+    ("loiter", "Loiter",
+     "Orbit one spot at 150 m radius for five minutes: the same ground from every heading, where one false fix pulls the aircraft off station."),
+    ("survey", "Survey grid",
+     "Six 1.2 km lines, 200 m apart, at a random angle: the aircraft has to hold each line, not just reach its end."),
+    ("cold_start", "Cold start",
+     "The aircraft does not know where it is: it believes it sits at the centre of the map and circles until the first confident fix."),
+    ("spree", "Spree corridor",
+     "7.5 km along the river through the centre, both directions: long stretches of water and embankment that look alike."),
+]
+MISSION_SUCCESS = {
+    "return_home": "B and home both within 100 m",
+    "tour": "all four spots within 100 m",
+    "loiter": "&ge;95% of the orbit within 100 m of the circle",
+    "survey": "&ge;95% of the grid lines flown within 100 m",
+    "cold_start": "arrives within 100 m",
+    "spree": "&ge;95% of the river flown within 100 m",
+}
+
+
+def build_mission_assets():
+    """Slim the full mission flight records (sim/out/mission_flights/, local-
+    only, reproducible from seed 1 via sim/missions.py --flight-dir) into the
+    committed assets/sim/missions/<kind>/f<i>.json the replay fetches. Same
+    CI-safe pattern as build_flight_assets."""
+    for kind, _, _ in MISSION_KINDS:
+        src, dst = MISSION_FLIGHTS_SRC / kind, ASSETS / "missions" / kind
+        dst.mkdir(parents=True, exist_ok=True)
+        if not src.exists():
+            if not any(dst.glob("f*.json")):
+                raise SystemExit(f"neither {src} nor committed {dst}/f*.json exists")
+            continue
+        for q in sorted(src.glob("f*.json")):
+            f = json.loads(q.read_text())
+            slim = {k: f[k] for k in
+                    ("flight_id", "mission", "success", "start_px", "target_px",
+                     "direct_m", "flight_s", "wind", "result", "declared_miss_m",
+                     "final_true_dist_m", "fix_counts", "fixes",
+                     "waypoints_px", "waypoints", "loiter", "cold_start",
+                     "localized_s", "xtrack") if k in f}
+            slim["track"] = f["track"][::2]          # ~1 s, by index (see build_flight_assets)
+            if slim["track"][-1] is not f["track"][-1]:
+                slim["track"].append(f["track"][-1])
+            (dst / q.name).write_text(json.dumps(slim, separators=(",", ":")))
+
+
+def _mission_label(kind, f):
+    """Short per-flight result for the picker, in the mission's own terms."""
+    if kind == "return_home":
+        m = f"home {f['waypoints'][-1]['true_miss_m']:,.0f} m out" if len(f["waypoints"]) == 2 else "did not get home"
+    elif kind == "tour":
+        m = (f"worst spot {max(w['true_miss_m'] for w in f['waypoints']):,.0f} m out"
+             if f["waypoints"] else "no spot reached")
+    elif kind == "loiter":
+        m = f"{f['loiter']['on_station']:.0%} on station"
+    elif kind in ("survey", "spree"):
+        m = f"{f['xtrack']['within_100m']:.0%} of the line within 100 m"
+    else:
+        m = f"lands {f['final_true_dist_m']:,.0f} m out"
+    return f"flight {f['flight_id']} &middot; {m} &middot; {f['fix_counts']['false_fix']} false"
+
+
+def mission_data():
+    """Everything the page needs about the six missions, from the committed
+    sim/out/missions/*.json: picker rows, table numbers, and the Spree
+    false-fix profile along the river."""
+    out = {}
+    for kind, name, asks in MISSION_KINDS:
+        d = json.loads((MISSIONS_OUT / f"{kind}.json").read_text())
+        dr = json.loads((MISSIONS_OUT / f"{kind}_dr.json").read_text())
+        fl = d["flights"]
+        t = d["summary"]["total_fixes"]
+        ok = [f["flight_id"] for f in fl if f["success"]]
+        bad = [f["flight_id"] for f in fl if not f["success"]]
+        out[kind] = {
+            "name": name, "asks": asks, "n": len(fl),
+            "rows": [{"id": f["flight_id"], "ok": bool(f["success"]),
+                      "lab": _mission_label(kind, f)} for f in fl],
+            "example": ok[0] if ok else fl[0]["flight_id"],
+            "fail_example": bad[0] if bad else None,
+            "success": d["summary"]["success_rate"],
+            "success_dr": dr["summary"]["success_rate"],
+            "ff_rate": t["false_fix"] / max(1, sum(t[k] for k in ("usable", "abstain", "false_fix"))),
+            "ff_flights": d["summary"]["n_flights_with_false_fix"],
+            "summary": d["summary"],
+            "flights": fl,
+        }
+    return out
+
+
+def spree_profile(fl):
+    """False-fix share per kilometre of river, measured along the route."""
+    route = np.array([fl[0]["start_px"]] + fl[0]["waypoints_px"], float)
+    seg = np.diff(route, axis=0)
+    cum = np.r_[0, np.cumsum(np.linalg.norm(seg, axis=1))]
+    def along(p):
+        best = (1e18, 0.0)
+        for i, ab in enumerate(seg):
+            a = route[i]
+            t = float(np.clip(np.dot(p - a, ab) / ab.dot(ab), 0, 1))
+            dd = float(np.linalg.norm(p - (a + t * ab)))
+            if dd < best[0]:
+                best = (dd, cum[i] + t * float(np.linalg.norm(ab)))
+        return best[1]
+    nb = int(np.ceil(cum[-1] / 1000))
+    tot, ff = np.zeros(nb), np.zeros(nb)
+    for f in fl:
+        for x in f["fixes"]:
+            if x["outcome"] == "off_map":
+                continue
+            k = min(nb - 1, int(along(np.array(x["true"])) // 1000))
+            tot[k] += 1
+            ff[k] += x["outcome"] == "false_fix"
+    return {"km": round(cum[-1] / 1000, 1), "tot": tot.tolist(), "ff": ff.tolist()}
+
+
+SPREE_PLACES = {3: "the Spreebogen, beside the Chancellery", 6: "the Charlottenburg bend"}
+
+
+def spree_svg(prof):
+    """Bar strip: share of fixes that were false, per kilometre of river."""
+    W, H, ML, MB, MT = 900, 150, 40, 30, 22
+    n = len(prof["tot"])
+    rates = [f / t if t else 0.0 for f, t in zip(prof["ff"], prof["tot"])]
+    top = max(0.2, max(rates))
+    bw = (W - ML - 10) / n
+    out = [f"<svg viewBox='0 0 {W} {H}' role='img' aria-label='share of false fixes per kilometre of the Spree route'>"]
+    for k, r in enumerate(rates):
+        x = ML + k * bw
+        h = (H - MB - MT) * r / top
+        col = "var(--accent)" if r >= 0.02 else "var(--ink)"
+        out.append(f"<rect x='{x + 6:.1f}' y='{H - MB - max(h, 1.2):.1f}' width='{bw - 12:.1f}' "
+                   f"height='{max(h, 1.2):.1f}' style='fill:{col}'/>")
+        out.append(f"<text x='{x + bw / 2:.1f}' y='{H - MB - max(h, 1.2) - 6:.1f}' text-anchor='middle' "
+                   f"style='font:12px var(--serif);fill:{col}'>{r:.1%}</text>")
+        out.append(f"<text x='{x + bw / 2:.1f}' y='{H - 10}' text-anchor='middle' "
+                   f"style='font:11.5px var(--serif);fill:var(--muted)'>km {k}&ndash;{k + 1}</text>")
+    out.append(f"<line x1='{ML}' x2='{W - 10}' y1='{H - MB}' y2='{H - MB}' style='stroke:var(--rule)'/>")
+    out.append(f"<text x='{ML}' y='12' style='font:italic 11.5px var(--serif);fill:var(--muted)'>"
+               "share of fixes that were false, by kilometre along the river (east &rarr; west)</text>")
+    out.append("</svg>")
+    return "".join(out)
+
+
+def missions_section(n):
+    """Section: the six other mission types — table, Spree profile, replay links."""
+    md = mission_data()
+    def pct(x):
+        return f"{x:.0%}"
+    def detail(kind, m):
+        sm = m["summary"]
+        if kind == "return_home":
+            return (f"home reached within 100 m on {sum(1 for f in m['flights'] if len(f['waypoints']) == 2 and f['waypoints'][1]['true_miss_m'] <= 100)}"
+                    f" of {m['n']} flights, median {sm['waypoint_miss_median_m'][1]:.0f} m")
+        if kind == "tour":
+            return ("median miss per spot " + " / ".join(f"{v:.0f}" for v in sm["waypoint_miss_median_m"])
+                    + " m: no build-up")
+        if kind == "loiter":
+            return (f"median {sm['on_station_median']:.0%} of the orbit on station; worst flight "
+                    f"{sm['on_station_worst']:.0%}")
+        if kind in ("survey", "spree"):
+            return f"median cross-track {sm['xtrack_mean_median_m']:.0f} m"
+        if kind == "cold_start":
+            first = ("located itself on its first frame (median flight); " if sm['localized_s_median'] < 1
+                     else f"located itself after {sm['localized_s_median']:.0f} s (median); ")
+            return first + f"{sm['first_confident_fix_false']} flights began from a false fix and recovered"
+        return ""
+    rows = []
+    for kind, m in md.items():
+        rp = (f"<button class='fp-rp' onclick=\"FP.loadFlight('{kind}:{m['example']}');"
+              f"document.getElementById('map').scrollIntoView({{behavior:'smooth',block:'center'}})\">success</button>")
+        if m["fail_example"] is not None:
+            rp += (f" <button class='fp-rp fail' onclick=\"FP.loadFlight('{kind}:{m['fail_example']}');"
+                   f"document.getElementById('map').scrollIntoView({{behavior:'smooth',block:'center'}})\">failure</button>")
+        rows.append(
+            f"<tr><td><b>{m['name']}</b><div class='mis-asks'>{m['asks']}</div>"
+            f"<div class='mis-ok'>success = {MISSION_SUCCESS[kind]}</div></td>"
+            f"<td class='num'><b>{pct(m['success'])}</b></td>"
+            f"<td class='num'>{pct(m['success_dr'])}</td>"
+            f"<td class='num'>{m['ff_rate']:.1%}</td>"
+            f"<td>{detail(kind, m)}</td><td class='rp'>{rp}</td></tr>")
+
+    prof = spree_profile(md["spree"]["flights"])
+    ff_all = sum(prof["ff"])
+    order = sorted(range(len(prof["ff"])), key=lambda k: -prof["ff"][k])[:2]
+    hot = sum(prof["ff"][k] for k in order)
+    def place(k):
+        return SPREE_PLACES.get(k, f"km {k}&ndash;{k + 1}")
+    hot_txt = " and ".join(
+        f"{place(k)} ({prof['ff'][k] / prof['tot'][k]:.0%} of fixes there false)" for k in order)
+    others = [prof["ff"][k] / prof["tot"][k] for k in range(len(prof["ff"])) if k not in order and prof["tot"][k]]
+    tour, spree = md["tour"], md["spree"]
+    failed = [f for m in md.values() for f in m["flights"] if not f["success"]]
+    failed_ff = sum(1 for f in failed if f["fix_counts"]["false_fix"])
+    def worst_miss(f):
+        if "xtrack" in f:
+            return f["xtrack"]["max_m"]
+        return max([w["true_miss_m"] for w in f.get("waypoints", [])] + [f["final_true_dist_m"]])
+    near = [worst_miss(f) for f in failed if not f["fix_counts"]["false_fix"]]
+    return f"""
+{rsec(n, "Six more missions",
+      "Return home, a tour, a loiter, a survey, a cold start and the river: the same aircraft and model, asked different questions.")}
+<div class="fp-note">
+<p>A&nbsp;&rarr;&nbsp;B asks one thing. Real flights ask more: come back,
+hold a spot, sweep an area, start without knowing where you are. Each
+mission below was flown {md['spree']['n']} times with the same airframe,
+wind, navigator and model as above, over the same 2024 photograph, and
+once more <b>without the camera</b> in the very same weather. Pick one in
+the replay&rsquo;s first menu, or use the buttons to watch a success and a
+failure.</p></div>
+<table class="fp-fail fp-mis">
+<thead><tr><th>mission</th><th>succeeds</th><th>without<br>camera</th>
+<th>fixes<br>false</th><th>measured</th><th>replay</th></tr></thead>
+<tbody>{''.join(rows)}</tbody></table>
+<div class="fp-note">
+<p><b>The error does not build up.</b> On the tour the median miss is the
+same at the fourth spot as at the first; every usable fix resets the
+estimate. Of the {len(failed)} failed mission flights, {failed_ff} took at
+least one confident wrong answer that dragged the believed position away;
+the other {len(near)} had none and missed narrowly
+({min(near):.0f}&ndash;{max(near):.0f} m against the 100 m limit). A longer
+mission simply draws more wrong answers, which is why the four-spot tour succeeds on
+{pct(tour['success'])} of flights while each of its spots is reached on
+{pct(tour['summary']['waypoints_within_100m'])} of visits.</p>
+<p><b>False fixes belong to places, not to chance.</b> Along the Spree
+{spree['ff_rate']:.1%} of fixes are false, against
+{min(v['ff_rate'] for k, v in md.items() if k != 'spree'):.1%}&ndash;{max(v['ff_rate'] for k, v in md.items() if k != 'spree'):.1%}
+on the other missions, and every one of the {spree['n']} flights had at least one.
+But {hot:.0f} of the {ff_all:.0f} sit in two kilometres of river:
+{hot_txt}. The other kilometres run at {min(others):.1%}&ndash;{max(others):.1%}.
+The same model flying the same river fails at the same spots, so this is a
+property of the map, measurable before anyone flies, and the kind of
+weakness a training experiment can target.</p></div>
+<div class="fp-chart">{spree_svg(prof)}</div>"""
+
+
+def mission_picker_html():
+    opts = "".join(f"<option value='{k}'>{n}</option>" for k, n, _ in MISSION_KINDS)
+    return ("<select id='missionsel' aria-label='choose a mission type'>"
+            "<option value='a_to_b' selected>A &rarr; B</option>" + opts + "</select>")
+
+
 def flight_selector_html():
     """<select> over the showcase + all 100 Monte-Carlo flights, grouped by
     outcome, labels carrying the true miss so failures are browsable too."""
@@ -285,6 +547,8 @@ def flight_section(rel, record_note, n=1):
         "flight": {k: showcase[k] for k in
                    ("start_px", "target_px", "direct_m", "flight_s", "wind",
                     "declared_miss_m", "fix_counts", "fixes", "track")},
+        "missions": {k: {"name": v["name"], "example": v["example"],
+                         "rows": v["rows"]} for k, v in mission_data().items()},
     }
     return f"""
 {rsec(n, "One flight, replayed",
@@ -333,6 +597,7 @@ box &mdash; beyond the edge there is no imagery and no way back.
 <span class="mini-t" id="minit">&mdash;</span>
 </div>
 <div class="fp-controls">
+{mission_picker_html()}
 {flight_selector_html()}
 <button id="play">Play</button>
 <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="flight time">
@@ -366,6 +631,7 @@ def main():
     build_basemap(meta_w, meta_h)
     build_crops(showcase["fixes"])
     build_flight_assets()
+    build_mission_assets()
 
     rows = mc_compact(mc)
     s = mc["summary"]
@@ -391,7 +657,7 @@ def main():
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 {social_meta('gallery/flight-path.html', 'Flight path — Ballpark',
-             f'A virtual fixed-wing UAV flies Berlin from a to b with the champion model as its only position source, over a photograph it never trained on. {n_within} of 100 flights arrive within 100 m; the failures are shown, not averaged away.')}
+             f'A virtual fixed-wing UAV flies Berlin from a to b with the champion model as its only position source, over a photograph it never trained on. {n_within} of 100 flights arrive within 100 m; the failures are shown, not averaged away. Six more missions follow: return home, tour, loiter, survey, cold start and the Spree.')}
 <title>Flight path &mdash; Ballpark</title>
 <style>{CSS}
 {FP_CSS}
@@ -406,7 +672,9 @@ virtual fixed-wing UAV that must fly from <b>a</b> to <b>b</b> over Berlin
 with the model&rsquo;s vision fixes as its <b>only</b> position source
 &mdash; dead reckoning in between, wind and gyro bias it cannot see, false
 fixes accepted like any other. Arrival is declared on the aircraft&rsquo;s
-own estimate and scored against the truth.</p></header>
+own estimate and scored against the truth. Then six other kinds of
+mission: return home, a tour, a loiter, a survey grid, a cold start and
+the river.</p></header>
 
 <div class="fp-wrap">
 
@@ -484,7 +752,9 @@ configuration &mdash; reported as flown, not filtered out.</p></div>
 <th>false fixes</th><th>target on never-trained ground</th></tr></thead>
 <tbody>{failure_rows}</tbody></table>
 
-{rsec(4, "What is real here, and what is simulated",
+{missions_section(4)}
+
+{rsec(5, "What is real here, and what is simulated",
       "The test is honest only if its seams are visible.")}
 <div class="fp-honest">
 <div><h3>Real</h3><ul>
@@ -507,6 +777,11 @@ airspeed error &mdash; all invisible to the navigator.</li>
 <li><b>The navigator:</b> dead reckoning + magnetometer heading (standard FC
 hardware; vision stays the only <i>position</i> source), fixes blended by
 staleness. False fixes are accepted like any other.</li>
+<li><b>The mission logic:</b> written for this simulator in the manner of
+ArduPlane, not ArduPilot&rsquo;s code: a waypoint counts as passed once
+the aircraft crosses the line through it; survey lines and the river are
+followed as lines; the orbit is a guidance field; a cold-started aircraft
+circles until its first confident fix.</li>
 </ul></div>
 <div><h3>Best-case caveats</h3><ul>
 <li>The camera is a <b>different aerial survey</b> than the training ones,
@@ -520,6 +795,9 @@ robustness are unmeasured, here as in the eval.</li>
 <li>Same 100 flights with vision disabled: <b>0 arrive within
 100 m</b>, median miss {mc_dr['summary']['declared_miss_median_m']:,.0f} m.
 Whatever navigation is happening here, it is the model doing it.</li>
+<li>The six other missions, flown again without the camera, succeed on
+{', '.join(f"{v['success_dr']:.0%}" for v in mission_data().values())} of
+flights ({', '.join(v['name'].lower() for v in mission_data().values())}).</li>
 </ul></div>
 </div>
 
@@ -527,7 +805,10 @@ Whatever navigation is happening here, it is the model doing it.</li>
 <p class="bottom-line"><span class="hl">Asked to fly over a photograph it
 never saw, the champion delivers {n_within} flights in 100 to within
 100 m</span> &mdash; with under a third of the false fixes the previous champion
-made on its own training photograph, and every miss on the page.</p>
+made on its own training photograph, and every miss on the page. Across
+six other missions the error never builds up; what fails a mission is
+nearly always one confident wrong answer, and those cluster at a few places
+on the map.</p>
 
 </div>
 <script>{charts_js(json.dumps(rows, separators=(',', ':')))}</script>
@@ -554,19 +835,22 @@ const halo=w=>el('polyline',{fill:'none',stroke:PAPER,'stroke-width':w,'stroke-o
 let F,T,dur,truePts,estCmds,trueLine,trueHalo,estLine,estHalo,fixG,ac,hasCrops,flightLabel;
 const flightHooks=[];
 // start / target markers — must be findable at a glance
-const HALO_STYLE='paint-order:stroke;stroke:#fffff8;stroke-width:20px;stroke-linejoin:round';
+// S = map units per screen unit relative to the whole-box view: mission
+// replays zoom the map to their own area, and every marker scales by S so it
+// keeps its on-screen size.
+let S=1;
 const lab=(x,y,t,size,italic)=>{const e=el('text',{x:x,y:y,'font-size':size,
   'font-family':'Palatino,Georgia,serif','font-style':italic?'italic':'normal',
   'font-weight':italic?'400':'600',fill:INK,'text-anchor':'middle',
-  style:HALO_STYLE+(italic?'':';letter-spacing:.08em')},g);e.textContent=t;return e};
+  style:`paint-order:stroke;stroke:#fffff8;stroke-width:${20*S}px;stroke-linejoin:round`+(italic?'':';letter-spacing:.08em')},g);e.textContent=t;return e};
 const endpoint=(x,y,color,word,dx,dy)=>{
-  el('circle',{cx:x,cy:y,r:320,fill:PAPER,'fill-opacity':.3},g);   // spotlight
-  const pulse=el('circle',{cx:x,cy:y,r:140,fill:'none',stroke:color,'stroke-width':18,opacity:.75},g);
-  el('animate',{attributeName:'r',values:'140;330',dur:'2.6s',repeatCount:'indefinite'},pulse);
+  el('circle',{cx:x,cy:y,r:320*S,fill:PAPER,'fill-opacity':.3},g);   // spotlight
+  const pulse=el('circle',{cx:x,cy:y,r:140*S,fill:'none',stroke:color,'stroke-width':18*S,opacity:.75},g);
+  el('animate',{attributeName:'r',values:`${140*S};${330*S}`,dur:'2.6s',repeatCount:'indefinite'},pulse);
   el('animate',{attributeName:'opacity',values:'.75;0',dur:'2.6s',repeatCount:'indefinite'},pulse);
-  el('circle',{cx:x,cy:y,r:150,fill:'none',stroke:color,'stroke-width':30},g);
-  el('circle',{cx:x,cy:y,r:64,fill:color,stroke:PAPER,'stroke-width':26},g);
-  lab(x+dx,y+dy,word,200,false);
+  el('circle',{cx:x,cy:y,r:150*S,fill:'none',stroke:color,'stroke-width':30*S},g);
+  el('circle',{cx:x,cy:y,r:64*S,fill:color,stroke:PAPER,'stroke-width':26*S},g);
+  lab(x+dx*S,y+dy*S,word,200*S,false);
 };
 
 function initFlight(f,label){
@@ -575,7 +859,35 @@ function initFlight(f,label){
   hasCrops=F.fixes.some(x=>x.crop);
   playing=false;playBtn.textContent='Play';cur=0;lastTs=0;
   g.replaceChildren();
-  el('circle',{cx:F.target_px[0],cy:F.target_px[1],r:100,fill:'none',stroke:INK,'stroke-dasharray':'4 4','vector-effect':'non-scaling-stroke','stroke-width':1.3},g);
+  {const svg=document.getElementById('map');
+   if(F.mission){   // zoom to the mission's own ground, inside the box
+     const xs=[],ys=[];const add=q=>{xs.push(q[0]);ys.push(q[1]);};
+     T.forEach(p=>add([p[1],p[2]]));add(F.start_px);(F.waypoints_px||[]).forEach(add);
+     if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m+100;add([cx-R,cy-R]);add([cx+R,cy+R]);}
+     if(F.cold_start)add([D.w/2,D.h/2]);
+     const pad=450,x0=Math.min(...xs)-pad,x1=Math.max(...xs)+pad,y0=Math.min(...ys)-pad,y1=Math.max(...ys)+pad;
+     // as wide as needed (>= 2.4 km), between half as tall and square
+     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.5));
+     const vx=Math.max(0,Math.min(D.w-vw,(x0+x1-vw)/2)),vy=Math.max(0,Math.min(D.h-vh,(y0+y1-vh)/2));
+     svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;
+   } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;}}
+  const MK=F.mission||'a_to_b';
+  if(MK!=='loiter')el('circle',{cx:F.target_px[0],cy:F.target_px[1],r:100,fill:'none',stroke:INK,'stroke-dasharray':'4 4','vector-effect':'non-scaling-stroke','stroke-width':1.3},g);
+  // the mission's plan, faint and under everything: route, orbit, believed start
+  const planLine=(pts)=>{const a=pts.map(q=>q[0]+','+q[1]).join(' ');
+    el('polyline',{points:a,fill:'none',stroke:PAPER,'stroke-width':4,'stroke-opacity':.7,'vector-effect':'non-scaling-stroke','stroke-linejoin':'round'},g);
+    el('polyline',{points:a,fill:'none',stroke:MUTED,'stroke-width':1.6,'stroke-dasharray':'8 6','vector-effect':'non-scaling-stroke','stroke-linejoin':'round'},g);};
+  if(F.waypoints_px)planLine([F.start_px].concat(F.waypoints_px));
+  if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m;
+    el('circle',{cx,cy,r:R,fill:'none',stroke:PAPER,'stroke-width':4,'stroke-opacity':.7,'vector-effect':'non-scaling-stroke'},g);
+    el('circle',{cx,cy,r:R,fill:'none',stroke:MUTED,'stroke-width':1.6,'stroke-dasharray':'8 6','vector-effect':'non-scaling-stroke'},g);
+    el('circle',{cx,cy,r:R+100,fill:'none',stroke:FAINT,'stroke-width':1.1,'stroke-dasharray':'2 5','vector-effect':'non-scaling-stroke'},g);}
+  if(F.cold_start){const bx=D.w/2,by=D.h/2;
+    // ochre = the aircraft's belief, as everywhere on this page
+    el('line',{x1:bx,y1:by,x2:F.start_px[0],y2:F.start_px[1],stroke:PAPER,'stroke-width':4,'stroke-opacity':.7,'vector-effect':'non-scaling-stroke'},g);
+    el('line',{x1:bx,y1:by,x2:F.start_px[0],y2:F.start_px[1],stroke:OCHRE,'stroke-width':2,'stroke-dasharray':'6 5','vector-effect':'non-scaling-stroke'},g);
+    el('circle',{cx:bx,cy:by,r:90*S,fill:PAPER,'fill-opacity':.7,stroke:OCHRE,'stroke-width':26*S},g);
+    lab(bx,by-170*S,'believed start',170*S,true);}
   truePts=T.map(p=>p[1]+','+p[2]);
   // The believed path is drawn only while the estimate is within 300 m of
   // the truth. A false fix teleports the BELIEF across the city — the
@@ -588,8 +900,18 @@ function initFlight(f,label){
   estLine=el('path',{fill:'none',stroke:OCHRE,'stroke-width':2.2,'stroke-dasharray':'6 5','vector-effect':'non-scaling-stroke','stroke-linejoin':'round'},g);
   trueHalo=halo(5); trueLine=el('polyline',{fill:'none',stroke:INK,'stroke-width':2.4,'vector-effect':'non-scaling-stroke','stroke-linejoin':'round'},g);
   fixG=el('g',{},g);
-  endpoint(F.start_px[0],F.start_px[1],INK,'START',560,80);
-  endpoint(F.target_px[0],F.target_px[1],ACCENT,'TARGET',-560,-240);
+  const WORDS={return_home:['HOME',null],loiter:['START','ORBIT'],survey:['START','END'],spree:['START','END']}[MK]||['START','TARGET'];
+  if(MK==='tour'||MK==='return_home'){   // the intermediate stops, numbered
+    F.waypoints_px.slice(0,-1).forEach((w,k)=>{
+      if(MK==='return_home'){endpoint(w[0],w[1],ACCENT,'B',-300,-240);return;}
+      el('rect',{x:w[0]-70*S,y:w[1]-70*S,width:140*S,height:140*S,fill:PAPER,stroke:INK,'stroke-width':24*S},g);
+      lab(w[0],w[1]-140*S,String(k+1),190*S,false);});
+  }
+  endpoint(F.start_px[0],F.start_px[1],INK,WORDS[0],560,80);
+  if(MK==='loiter'){   // a small centre mark: the big target rings would hide the orbit itself
+    el('circle',{cx:F.target_px[0],cy:F.target_px[1],r:34*S,fill:ACCENT,stroke:PAPER,'stroke-width':14*S},g);
+    lab(F.target_px[0],F.target_px[1]-F.loiter.radius_m-130*S,'ORBIT',200*S,false);
+  } else if(WORDS[1])endpoint(F.target_px[0],F.target_px[1],ACCENT,MK==='tour'?'4':WORDS[1],-560,-240);
   ac=el('polygon',{points:'0,-160 95,130 0,70 -95,130',fill:INK,stroke:PAPER,'stroke-width':34},g);
   cam.style.display=hasCrops?'':'none';
   camcv.style.display=hasCrops?'none':'';
@@ -604,8 +926,19 @@ function initFlight(f,label){
 }
 
 async function loadFlight(val){
-  if(flightSel)flightSel.value=String(val);
+  val=String(val);
+  const isM=val.includes(':'), kind=isM?val.split(':')[0]:'a_to_b';
+  setMission(kind);
+  if(flightSel)flightSel.value=val;
   if(val==='showcase'){initFlight(D.flight,D.label);startPlay();return;}
+  if(isM){
+    const id=val.split(':')[1], M=D.missions[kind];
+    const f=await fetch(REL+'assets/sim/missions/'+kind+'/f'+id+'.json').then(r=>r.json());
+    const row=M.rows.find(r=>String(r.id)===id);
+    initFlight(f,M.name+' &middot; '+(row?row.lab:'flight '+id)+
+      (f.success?'':' &middot; <span style="color:'+ACCENT+'">mission failed</span>'));
+    startPlay();return;
+  }
   const f=await fetch(REL+'assets/sim/flights/f'+val+'.json').then(r=>r.json());
   const miss=f.result==='arrived'?f.declared_miss_m:f.final_true_dist_m;
   initFlight(f,'flight '+f.flight_id+' &middot; '+(f.result==='timeout'?'timed out':'declared arrival')+' '+fmt(miss)+' from target');
@@ -615,19 +948,19 @@ function startPlay(){playing=true;lastTs=0;playBtn.textContent='Pause';requestAn
 
 const fixMark=(fx,i)=>{
   const [x,y]=fx.true;let m;
-  if(fx.outcome==='usable') m=el('circle',{cx:x,cy:y,r:28,fill:INK,stroke:PAPER,'stroke-width':10},fixG);
-  else if(fx.outcome==='abstain') m=el('circle',{cx:x,cy:y,r:30,fill:PAPER,'fill-opacity':.5,stroke:FAINT,'stroke-width':14},fixG);
-  else if(fx.outcome==='off_map') m=el('rect',{x:x-30,y:y-30,width:60,height:60,fill:'none',stroke:FAINT,'stroke-width':12,'stroke-dasharray':'22 14'},fixG);
+  if(fx.outcome==='usable') m=el('circle',{cx:x,cy:y,r:28*S,fill:INK,stroke:PAPER,'stroke-width':10*S},fixG);
+  else if(fx.outcome==='abstain') m=el('circle',{cx:x,cy:y,r:30*S,fill:PAPER,'fill-opacity':.5,stroke:FAINT,'stroke-width':14*S},fixG);
+  else if(fx.outcome==='off_map') m=el('rect',{x:x-30*S,y:y-30*S,width:60*S,height:60*S,fill:'none',stroke:FAINT,'stroke-width':12*S,'stroke-dasharray':`${22*S} ${14*S}`},fixG);
   else{ // false fix: ring at true pos + thin line to an x at the claimed position
-    const px=fx.pred[0],py=fx.pred[1],s=52;
+    const px=fx.pred[0],py=fx.pred[1],s=52*S;
     el('line',{x1:x,y1:y,x2:px,y2:py,stroke:ACCENT,'stroke-width':1.2,'stroke-dasharray':'3 3','vector-effect':'non-scaling-stroke'},fixG);
-    el('line',{x1:px-s,y1:py-s,x2:px+s,y2:py+s,stroke:PAPER,'stroke-width':46},fixG);
-    el('line',{x1:px-s,y1:py+s,x2:px+s,y2:py-s,stroke:PAPER,'stroke-width':46},fixG);
-    el('line',{x1:px-s,y1:py-s,x2:px+s,y2:py+s,stroke:ACCENT,'stroke-width':22},fixG);
-    el('line',{x1:px-s,y1:py+s,x2:px+s,y2:py-s,stroke:ACCENT,'stroke-width':22},fixG);
-    m=el('circle',{cx:x,cy:y,r:44,fill:'none',stroke:ACCENT,'stroke-width':20},fixG);
+    el('line',{x1:px-s,y1:py-s,x2:px+s,y2:py+s,stroke:PAPER,'stroke-width':46*S},fixG);
+    el('line',{x1:px-s,y1:py+s,x2:px+s,y2:py-s,stroke:PAPER,'stroke-width':46*S},fixG);
+    el('line',{x1:px-s,y1:py-s,x2:px+s,y2:py+s,stroke:ACCENT,'stroke-width':22*S},fixG);
+    el('line',{x1:px-s,y1:py+s,x2:px+s,y2:py-s,stroke:ACCENT,'stroke-width':22*S},fixG);
+    m=el('circle',{cx:x,cy:y,r:44*S,fill:'none',stroke:ACCENT,'stroke-width':20*S},fixG);
   }
-  const hit=el('circle',{cx:x,cy:y,r:120,fill:'transparent'},fixG);
+  const hit=el('circle',{cx:x,cy:y,r:120*S,fill:'transparent'},fixG);
   hit.style.cursor='pointer';
   hit.addEventListener('mousemove',e=>tip(e,fixTipHtml(fx,i)));
   hit.addEventListener('mouseleave',hideTip);
@@ -650,7 +983,23 @@ const scrub=document.getElementById('scrub'), tread=document.getElementById('tre
       camsub=document.getElementById('camsub'), read=document.getElementById('read'),
       flightSel=document.getElementById('flightsel'), camcv=document.getElementById('camcv'),
       miniImg=document.getElementById('miniimg'), miniCv=document.getElementById('minicv'),
-      miniT=document.getElementById('minit');
+      miniT=document.getElementById('minit'), missionSel=document.getElementById('missionsel');
+// the flight list follows the mission picker; A -> B restores the original list
+const AB_HTML=flightSel?flightSel.innerHTML:'';
+if(flightSel)flightSel.dataset.kind='a_to_b';
+function setMission(kind){
+  if(!flightSel||!missionSel||!D.missions)return;
+  missionSel.value=kind;
+  if(flightSel.dataset.kind===kind)return;
+  flightSel.dataset.kind=kind;
+  if(kind==='a_to_b'){flightSel.innerHTML=AB_HTML;return;}
+  const M=D.missions[kind], ok=M.rows.filter(r=>r.ok), bad=M.rows.filter(r=>!r.ok);
+  const grp=(l,rs)=>rs.length?`<optgroup label="${l} (${rs.length})">`+
+    rs.map(r=>`<option value="${kind}:${r.id}">${r.lab}</option>`).join('')+'</optgroup>':'';
+  flightSel.innerHTML=grp('mission succeeded',ok)+grp('mission failed',bad);
+}
+if(missionSel)missionSel.addEventListener('change',e=>{const k=e.target.value;
+  loadFlight(k==='a_to_b'?'showcase':k+':'+D.missions[k].example);});
 // Camera-view reconstruction for flights whose frames weren't archived:
 // crop the 2 m/px reference raster at the fix's true position, rotated so
 // the aircraft's direction of travel points up — same convention as the
@@ -680,7 +1029,7 @@ function render(t){
   estHalo.setAttribute('d',dEst);
   const p=T[i], q=T[Math.max(0,i-1)];
   const angle=Math.atan2(p[1]-q[1],-(p[2]-q[2]))*180/Math.PI;
-  ac.setAttribute('transform',`translate(${p[1]},${p[2]}) rotate(${angle}) scale(0.95)`);
+  ac.setAttribute('transform',`translate(${p[1]},${p[2]}) rotate(${angle}) scale(${0.95*S})`);
   // fixes reached so far
   fixG.replaceChildren();
   let last=null,counts={usable:0,abstain:0,false_fix:0};
@@ -699,7 +1048,7 @@ function render(t){
   const dist=Math.hypot(F.target_px[0]-p[1],F.target_px[1]-p[2]);
   read.innerHTML=`<span style="color:#111111;font-weight:600">${flightLabel}</span><br>`+
     `estimate is <b>${fmt(err)}</b> from the truth<br>`+
-    `<b>${fmt(dist)}</b> to the target (true)<br>`+
+    `<b>${fmt(dist)}</b> ${{loiter:'to the orbit centre',return_home:'to home (end of mission)',survey:'to the end of the grid',spree:'to the end of the route',tour:'to the last spot'}[F.mission]||'to the target'} (true)<br>`+
     `fixes so far: <b>${counts.usable}</b> usable · <b>${counts.abstain}</b> abstained · <b>${counts.false_fix}</b> false`;
   scrub.value=Math.round(1000*cur/dur);
   tread.textContent=cur.toFixed(1)+' s';

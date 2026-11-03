@@ -21,3 +21,5 @@ state/quarantine/
 # via `python -m sim.flightsim --flights 100 --seed 1 --flight-dir ...`;
 # the committed, slimmed copies the site fetches live in assets/sim/flights/.
 sim/out/mc_flights/
+# same for the mission flights (sim/missions.py --flight-dir); slimmed copies in assets/sim/missions/.
+sim/out/mission_flights/
