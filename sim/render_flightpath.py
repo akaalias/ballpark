@@ -46,6 +46,7 @@ FP_CSS = """
 .k-abstain{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--faint);background:transparent}
 .k-false{width:9px;height:9px;border-radius:50%;border:2px solid var(--accent);background:transparent}
 .k-offmap{width:9px;height:9px;border:1.6px dashed var(--faint);background:transparent}
+.k-box{width:16px;height:10px;border:1.2px dashed var(--muted);background:transparent}
 /* the replay breaks out of the text column: up to 1440 px of the window,
    24 px clear of each edge, centred on the column it sits in */
 .fp-wide{width:min(1440px,calc(100vw - 48px));position:relative;left:50%;
@@ -635,9 +636,10 @@ def flight_section(rel, record_note, n=1):
     md = mission_data()
     row = next(r for r in md[SHOW_KIND]["rows"] if r["id"] == SHOW_ID)
     first_crop = next((fx["crop"] for fx in show["fixes"] if "crop" in fx), "")
+    EXT = json.loads((ASSETS / "berlin-wide.json").read_text())
     meta_w, meta_h = 6939, 6828  # berlin raster (data/berlin/meta.json)
     data = {
-        "w": meta_w, "h": meta_h,
+        "w": meta_w, "h": meta_h, "ext": EXT,
         "label": (f"{md[SHOW_KIND]['name']} &middot; flight {SHOW_ID}<br><span class='lab-sub'>"
                   f"{'mission succeeded' if row['ok'] else 'mission failed'}</span>"),
         "flight": show,
@@ -661,14 +663,18 @@ def flight_section(rel, record_note, n=1):
 <span><i class="k-abstain"></i>abstention</span>
 <span><i class="k-false"></i>false fix</span>
 <span><i style="color:var(--accent);font-weight:700">&times;</i>where the false fix claimed to be</span>
-<span><i class="k-offmap"></i>off the mapped box &mdash; no imagery, no fix</span>
+<span><i class="k-box"></i>the model&rsquo;s area (outside it: display only, no fix)</span>
 </div>
 
 <div class="fp-stage">
 <div class="fp-map">
 <svg id="map" viewBox="0 0 {meta_w} {meta_h}" role="img"
      aria-label="Berlin orthophoto with the simulated flight path from start to target">
-<image href="{rel}assets/sim/berlin-base.jpg" x="0" y="0" width="{meta_w}" height="{meta_h}"/>
+<image href="{rel}assets/sim/berlin-wide.jpg" x="{EXT['x']}" y="{EXT['y']}" width="{EXT['w']}" height="{EXT['h']}" preserveAspectRatio="none"/>
+<path d="M{EXT['x']},{EXT['y']}h{EXT['w']}v{EXT['h']}h-{EXT['w']}z M0,0v{meta_h}h{meta_w}v-{meta_h}z"
+      fill="#fffff8" fill-opacity=".55" fill-rule="evenodd"/>
+<rect x="0" y="0" width="{meta_w}" height="{meta_h}" fill="none" stroke="#6b6a60"
+      stroke-width="1.2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>
 <g id="mapg"></g>
 </svg>
 <div class="fp-cam-mini" id="cammini">
@@ -954,17 +960,23 @@ function initFlight(f,label){
   playing=false;playBtn.textContent='Play';cur=0;lastTs=0;
   g.replaceChildren();
   {const svg=document.getElementById('map');
-   if(F.mission){   // zoom to the mission's own ground, inside the box
-     const xs=[],ys=[];const add=q=>{xs.push(q[0]);ys.push(q[1]);};
-     T.forEach(p=>add([p[1],p[2]]));add(F.start_px);(F.waypoints_px||[]).forEach(add);
-     if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m+100;add([cx-R,cy-R]);add([cx+R,cy+R]);}
-     if(F.cold_start)add([D.w/2,D.h/2]);
-     const pad=450,x0=Math.min(...xs)-pad,x1=Math.max(...xs)+pad,y0=Math.min(...ys)-pad,y1=Math.max(...ys)+pad;
-     // as wide as needed (>= 2.4 km), between half as tall and square (the replay is full-width, so a wide view keeps the controls in view)
-     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.5));
-     const vx=Math.max(0,Math.min(D.w-vw,(x0+x1-vw)/2)),vy=Math.max(0,Math.min(D.h-vh,(y0+y1-vh)/2));
-     svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;VB=[vx,vy,vw,vh];
-   } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;VB=null;}}
+   // Every flight is framed at one ground scale (M_PER_PX metres per screen
+   // pixel, the old whole-box look), so a wider window shows MORE of Berlin
+   // rather than a bigger copy of the same ground. The basemap extends past
+   // the model's box (sim/fetch_wide_basemap.py); the view stays inside it.
+   const M_PER_PX=7.7, Wpx=Math.max(240, svg.parentElement.clientWidth||840), EX=D.ext;
+   const xs=[],ys=[];const add=q=>{xs.push(q[0]);ys.push(q[1]);};
+   T.forEach(p=>add([p[1],p[2]]));add(F.start_px);add(F.target_px);(F.waypoints_px||[]).forEach(add);
+   if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m+100;add([cx-R,cy-R]);add([cx+R,cy+R]);}
+   if(F.cold_start)add([D.w/2,D.h/2]);
+   const pad=450,x0=Math.min(...xs)-pad,x1=Math.max(...xs)+pad,y0=Math.min(...ys)-pad,y1=Math.max(...ys)+pad;
+   const vw=Math.min(EX.w,Math.max(x1-x0,Wpx*M_PER_PX)), vh=Math.min(EX.h,Math.max(y1-y0,vw*0.5));
+   const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+   const vx=clamp((x0+x1-vw)/2,EX.x,EX.x+EX.w-vw), vy=clamp((y0+y1-vh)/2,EX.y,EX.y+EX.h-vh);
+   svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);VB=[vx,vy,vw,vh];
+   // markers keep their on-screen size: S is map metres per screen pixel
+   // relative to the original whole-box view (6,939 m across 840 px)
+   S=(vw/Wpx)/(D.w/840);}
   const MK=F.mission||'a_to_b';
   if(MK!=='loiter')el('circle',{cx:F.target_px[0],cy:F.target_px[1],r:100,fill:'none',stroke:INK,'stroke-dasharray':'4 4','vector-effect':'non-scaling-stroke','stroke-width':1.3},g);
   // the mission's plan, faint and under everything: route, orbit, believed start
