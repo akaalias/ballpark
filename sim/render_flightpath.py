@@ -33,7 +33,7 @@ CROPS_SRC = REPO_ROOT / "sim" / "out" / "showcase_crops"
 
 BASEMAP_W = 1600
 
-# Styles for the shared "One flight, replayed" section (embedded on both the
+# Styles for the shared flight-replay section (embedded on both the
 # flight-path page and the root overview via flight_section()).
 FP_CSS = """
 .fp-legend{display:flex;gap:22px;justify-content:center;flex-wrap:wrap;
@@ -239,6 +239,7 @@ MISSIONS_OUT = REPO_ROOT / "sim" / "out" / "missions"
 # river's false fixes cluster. Its camera frames were saved by re-flying it
 # (sim/missions.py --save-crops-for 2, bit-identical to the 40-flight run).
 SHOW_KIND, SHOW_ID = "spree", 2
+SHOW_TITLE = "Flying the Spree through central Berlin, camera only"   # the section's heading
 SHOW_CROPS_SRC = REPO_ROOT / "sim" / "out" / "mission_crops" / f"{SHOW_KIND}_f{SHOW_ID}"
 SHOW_CROPS_REL = f"assets/sim/missions/{SHOW_KIND}/crops_f{SHOW_ID}/"
 MISSION_FLIGHTS_SRC = REPO_ROOT / "sim" / "out" / "mission_flights"
@@ -606,7 +607,7 @@ def mc_compact(mc):
 
 
 def flight_section(rel, record_note, n=1):
-    """The complete "One flight, replayed" section — heading, narrative,
+    """The complete flight-replay section (heading SHOW_TITLE) — heading, narrative,
     legend, replay stage and its script — shared by the flight-path page
     (rel='../') and the root overview (rel=''). Reads only committed inputs
     (sim/out/showcase.json + assets/sim/), so any page can embed it without
@@ -638,7 +639,7 @@ def flight_section(rel, record_note, n=1):
                          "rows": v["rows"]} for k, v in md.items()},
     }
     return f"""
-{rsec(n, "One flight, replayed",
+{rsec(n, SHOW_TITLE,
       f"Along the Spree over a photograph the model never saw — {st['km']:.1f} km in {st['dur_min']:.0f} minutes, {len(st['ff'])} false fixes at {len(st['groups'])} places, finished {st['end_m']:.0f} m from the end.")}
 <div class="fp-legend">
 <span><i class="k-true"></i>true path</span>

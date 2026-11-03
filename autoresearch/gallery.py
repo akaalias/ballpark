@@ -4820,7 +4820,7 @@ f" The shaded row is where the trunk stopped being learned from scratch: from ex
     n_figs = sum(1 for r in _hist if (r.get("arch_svg") or "").lstrip().startswith("<svg"))
     figs_s = f"All {n_figs}"
 
-    # The "One flight, replayed" section is owned by sim/render_flightpath.py
+    # The flight-replay section is owned by sim/render_flightpath.py
     # and embedded here verbatim (rel='' because this page lives at the repo
     # root). Imported lazily: that module imports this one for the page shell.
     from sim.render_flightpath import FP_CSS, MC, MC_DR, flight_section
