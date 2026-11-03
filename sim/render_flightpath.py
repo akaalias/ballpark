@@ -693,30 +693,6 @@ def flight_section(rel, record_note, n=1):
 <div class="fp-read" id="read"></div>
 </div>
 </div>
-<div class="fp-note">
-<p>The river through the middle of Berlin, east to west, {st['km']:.1f}&nbsp;km
-from the Mühlendamm to the Charlottenburg bend, over Berlin&rsquo;s
-<b>2024 aerial survey</b>: a photograph the model never saw in training,
-taken in a different year and season, with different shadows, boats and
-construction. The aircraft has to <i>follow</i> the river, not just reach
-its end, and water and embankment look much the same for kilometres.
-{_groups_html(st)}, each
-{min(x['err_m'] for x in st['ff']):.0f}&ndash;{max(x['err_m'] for x in st['ff']):.0f}&nbsp;m
-wrong (red lines point to the claims, marked
-<span style="color:var(--accent)">&times;</span>). These are the places on
-the river where the model is most often confidently wrong. Usable fixes on
-either side keep the belief within {st['est_max']:.0f}&nbsp;m of the truth, so
-the aircraft stays over the river: {100 * st['within']:.0f}% of the route
-within 100&nbsp;m. {st['fc']['usable']} usable fixes, {st['fc']['abstain']}
-abstentions, and it finishes <b>{st['end_m']:.0f}&nbsp;m</b> from the end of
-the route.</p>
-<p style="font-size:13px;color:var(--muted)">Spree flight {SHOW_ID} of
-{md[SHOW_KIND]['n']} (seed 1), chosen because its false fixes fall where the
-river&rsquo;s false fixes cluster. Disclosed: only
-{md[SHOW_KIND]['success']:.0%} of the {md[SHOW_KIND]['n']} river flights stay
-within 100&nbsp;m of the river for 95% of the route, and every one takes at
-least one false fix. The first menu switches mission; the corner-to-corner
-A&nbsp;&rarr;&nbsp;B showcase is under A&nbsp;&rarr;&nbsp;B. {record_note}</p></div>
 <div class="fp-tip" id="tip"></div>
 <script>{replay_js(json.dumps(data, separators=(',', ':')), json.dumps(rel))}</script>"""
 
