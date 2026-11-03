@@ -1587,6 +1587,20 @@ def page_header(title, sub_html):
 SITE_URL = "https://alexisrondeau.me/ballpark/"
 
 
+# The flight computer the headline prices: the cheapest complete ESP32-P4
+# board with a camera (MIPI-CSI) connector and enough memory for the model.
+# 16 MB of flash holds the int8 export (~8 MiB; the size gate's derivation in
+# pipeline/score.py), 32 MB of PSRAM holds the activations. Olimex
+# ESP32-P4-DevKit, EUR 16.00 on olimex.com, checked 2026-11-03, about $18.
+# The old headline's $4 was the bare chip, which has no flash at all; a
+# Waveshare ESP32-P4-Module (same memory, $9.99) is cheaper but needs a
+# carrier board. Also printed on assets/social/card.jpg
+# (infra/make_social_card.py) -- re-run that when this changes.
+FLIGHT_COMPUTER_USD = 18
+FLIGHT_COMPUTER = "Olimex ESP32-P4-DevKit"
+FLIGHT_COMPUTER_LOCAL_PRICE = "&euro;16"
+
+
 def social_meta(path, title, desc):
     """OG/Twitter tags for one page. path is '' for the root overview or
     'gallery/<page>.html'; the card image is shared across all pages."""
@@ -4805,8 +4819,8 @@ f" The shaded row is where the trunk stopped being learned from scratch: from ex
 
     html_page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('', 'Ballpark — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a $4 flight computer?', f'Yes: a neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — usable on {usable_s2} of frames from a photograph it never trained on. The map is the weights, one city in {best_mb:.1f} MB. Found by an autonomous loop of coding agents in {n_all_exp} experiments for ${int(cost_all):,}.')}
-<title>Ballpark &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a $4 flight computer?</title>
+{social_meta('', f'Ballpark — “Not all who wander are lost”: Can a UAV learn a city by heart — no GPS, no map on board, just a ${FLIGHT_COMPUTER_USD} flight computer?', f'Yes: a neural memory that knows Berlin by heart. One downward photo in, (lat, lon, confidence) out — usable on {usable_s2} of frames from a photograph it never trained on. The map is the weights, one city in {best_mb:.1f} MB. Found by an autonomous loop of coding agents in {n_all_exp} experiments for ${int(cost_all):,}.')}
+<title>Ballpark &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a ${FLIGHT_COMPUTER_USD} flight computer?</title>
 <style>{CSS}
 {FP_CSS}
 table.ov-steps{{display:table;margin:14px auto 0;border-collapse:collapse;font:14px/1.5 var(--serif)}}
@@ -4824,7 +4838,7 @@ table.ov-steps tr:last-child td{{font-weight:600}}
 <div class="paths-wrap">
 <h1 class="home-h1">&ldquo;Not all who wander are lost&rdquo;</h1>
 <h2 class="home-q">Can a UAV learn a city by heart &mdash; no GPS, no map
-on board, just a $4 flight computer?</h2>
+on board, just a ${FLIGHT_COMPUTER_USD} flight computer?</h2>
 <div class="bl-h">The bottom line</div>
 {bottom_line}
 
@@ -4874,6 +4888,12 @@ a precise point inside the chosen tile.</p>
 experiment in the <a href="gallery/index.html">research log</a>, with the
 figures on the <a href="gallery/inference-paths.html">model designs</a>
 page.</p>
+<p>The ${FLIGHT_COMPUTER_USD} in the question is the board it is sized for:
+an {FLIGHT_COMPUTER} ({FLIGHT_COMPUTER_LOCAL_PRICE}), an ESP32&#8209;P4 with
+16&nbsp;MB of flash, 32&nbsp;MB of memory and a camera connector. The file
+fits that flash once its weights are stored as 8-bit integers instead of
+32-bit floats, about a quarter of the size. That conversion, and running
+the model on the chip itself, have not been tested yet.</p>
 </div>
 
 <div class="stats">
@@ -5250,7 +5270,7 @@ def render_paths(exps):
 
     body = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/inference-paths.html', 'Model designs — Ballpark', 'All 59 agent-drawn model designs in one shared visual language, kept and reverted alike.')}
+{social_meta('gallery/inference-paths.html', 'Model designs — Ballpark', f'All {len(figs)} agent-drawn model designs in one shared visual language, kept and reverted alike.')}
 <title>Model Designs &mdash; Ballpark</title>
 <style>{CSS}</style><script>{PATHS_JS}</script></head><body>
 {topnav('paths')}
@@ -5686,7 +5706,7 @@ def render_evolution(exps):
             for e in eras)
     body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-{social_meta('gallery/research-evolution.html', 'Research evolution — Ballpark', 'How the research itself branched: twelve days of eras, dead ends, incidents and insights, drawn as one graph.')}
+{social_meta('gallery/research-evolution.html', 'Research evolution — Ballpark', f'How the research itself branched from 20 July to {datetime.date.today().day} {datetime.date.today().strftime("%B")} {datetime.date.today().year}: its eras, dead ends, incidents and insights, drawn as one graph.')}
 <title>Research Evolution &mdash; Ballpark</title>
 <style>{CSS}{EVOLUTION_CSS}</style></head><body>
 {topnav('evolution')}
