@@ -663,7 +663,7 @@ def flight_section(rel, record_note, n=1):
 <span><i class="k-abstain"></i>abstention</span>
 <span><i class="k-false"></i>false fix</span>
 <span><i style="color:var(--accent);font-weight:700">&times;</i>where the false fix claimed to be</span>
-<span><i class="k-box"></i>the model&rsquo;s area (outside it: display only, no fix)</span>
+<span><i class="k-offmap"></i>off the mapped box &mdash; no imagery, no fix</span>
 </div>
 
 <div class="fp-stage">
@@ -671,10 +671,6 @@ def flight_section(rel, record_note, n=1):
 <svg id="map" viewBox="0 0 {meta_w} {meta_h}" role="img"
      aria-label="Berlin orthophoto with the simulated flight path from start to target">
 <image href="{rel}assets/sim/berlin-wide.jpg" x="{EXT['x']}" y="{EXT['y']}" width="{EXT['w']}" height="{EXT['h']}" preserveAspectRatio="none"/>
-<path d="M{EXT['x']},{EXT['y']}h{EXT['w']}v{EXT['h']}h-{EXT['w']}z M0,0v{meta_h}h{meta_w}v-{meta_h}z"
-      fill="#fffff8" fill-opacity=".55" fill-rule="evenodd"/>
-<rect x="0" y="0" width="{meta_w}" height="{meta_h}" fill="none" stroke="#6b6a60"
-      stroke-width="1.2" stroke-dasharray="6 5" vector-effect="non-scaling-stroke"/>
 <g id="mapg"></g>
 </svg>
 <div class="fp-cam-mini" id="cammini">
