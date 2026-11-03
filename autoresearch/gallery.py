@@ -1587,16 +1587,20 @@ def page_header(title, sub_html):
 SITE_URL = "https://alexisrondeau.me/ballpark/"
 
 
-# The flight computer the headline prices: the cheapest complete ESP32-P4
-# board with a camera (MIPI-CSI) connector and enough memory for the model.
-# 16 MB of flash holds the int8 export (~8 MiB; the size gate's derivation in
-# pipeline/score.py), 32 MB of PSRAM holds the activations. Olimex
-# ESP32-P4-DevKit, EUR 16.00 on olimex.com, checked 2026-11-03, about $18.
-# The old headline's $4 was the bare chip, which has no flash at all; a
-# Waveshare ESP32-P4-Module (same memory, $9.99) is cheaper but needs a
-# carrier board. Also printed on assets/social/card.jpg
-# (infra/make_social_card.py) -- re-run that when this changes.
-FLIGHT_COMPUTER_USD = 18
+# The flight computer the headline prices (Alexis, 2026-11-03): an ESP32-P4
+# MODULE with enough memory for the model, at a production price. 16 MB of
+# flash holds the int8 export (~8 MiB; the size gate's derivation in
+# pipeline/score.py), 32 MB of PSRAM holds the activations. Waveshare
+# ESP32-P4-Module: $9.99 retail (waveshare.com, checked 2026-11-03), less in
+# production quantities; it mounts on a carrier board that brings out the
+# camera connector. The cheapest complete dev board with the same memory
+# and a camera connector is the Olimex ESP32-P4-DevKit at EUR 16. The old
+# headline's $4 was the bare chip, which has no flash at all. Also printed
+# on assets/social/card.jpg (infra/make_social_card.py) -- re-run that when
+# this changes.
+FLIGHT_COMPUTER_USD = 10
+FLIGHT_COMPUTER = "Waveshare ESP32-P4-Module"
+FLIGHT_COMPUTER_LOCAL_PRICE = "$9.99 retail"
 
 # The downloadable model is a GitHub release asset, not a file in git: a
 # 31.7 MB ONNX per champion would bloat the repository forever (the July
@@ -1607,8 +1611,6 @@ FLIGHT_COMPUTER_USD = 18
 # step.
 MODEL_URL = ("https://github.com/akaalias/ballpark/releases/download/"
              "model-berlin-ch20/berlin.onnx")   # capture-holdout experiment 20
-FLIGHT_COMPUTER = "Olimex ESP32-P4-DevKit"
-FLIGHT_COMPUTER_LOCAL_PRICE = "&euro;16"
 
 
 def social_meta(path, title, desc):
@@ -4821,7 +4823,22 @@ f" The shaded row is where the trunk stopped being learned from scratch: from ex
     # The "One flight, replayed" section is owned by sim/render_flightpath.py
     # and embedded here verbatim (rel='' because this page lives at the repo
     # root). Imported lazily: that module imports this one for the page shell.
-    from sim.render_flightpath import FP_CSS, flight_section
+    from sim.render_flightpath import FP_CSS, MC, MC_DR, flight_section
+    # The hero: what the model does for an aircraft, from the same 100
+    # simulated flights the flight-path page shows (Alexis, 2026-11-03). The
+    # per-frame usable rate stays right under it, with its coloured bar.
+    _mc = json.loads(MC.read_text())["summary"]
+    _mcf = json.loads(MC.read_text())["flights"]
+    _mcdr = json.loads(MC_DR.read_text())["summary"]
+    _n_fl = _mc["n_flights"]
+    _misses = sorted(f["declared_miss_m"] for f in _mcf if f["result"] == "arrived")
+    _p10 = _misses[len(_misses) // 10 - 1] if _misses else None   # as the flight page
+    _p90 = _misses[(9 * len(_misses)) // 10 - 1] if _misses else None
+    fl_within = _mc["n_arrived_within_100m"]
+    fl_fail = _n_fl - fl_within
+    fl_med = _mc["declared_miss_median_m"]
+    fl_dr_within = _mcdr["n_arrived_within_100m"]
+    fl_dr_med = _mcdr["declared_miss_median_m"]
     flight_html = flight_section(
         "", "The full 100-flight record &mdash; the estimation-error chart, "
         "every arrival and every failure &mdash; is on the "
@@ -4852,8 +4869,18 @@ on board, just a ${FLIGHT_COMPUTER_USD} flight computer?</h2>
 <div class="bl-h">The bottom line</div>
 {bottom_line}
 
-<div class="stat-hero">
-  <b>{usable_s2}</b><span>of camera frames give a usable position fix</span>
+<div class="stat-hero"><b class="num">{fl_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
+<span>simulated flights arrive within 100&nbsp;m of the target</span></div>
+<div class="stats">
+<div class="stat"><b class="num">{fl_med:.0f} m</b>
+<span>median miss at declared arrival<br>(p10 {_p10:.0f} m &middot; p90 {_p90:.0f} m)</span></div>
+<div class="stat"><b class="num">{fl_dr_within}<span style="color:var(--faint)">/{_n_fl}</span></b>
+<span>arrive without vision fixes<br>(dead-reckoning control, median miss {fl_dr_med:,.0f} m)</span></div>
+<div class="stat"><b class="num">{fl_fail}</b>
+<span>flights miss beyond 100 m &mdash;<br>every one on the <a href="gallery/flight-path.html">flight path</a> page</span></div>
+</div>
+<div class="stat-hero frames">
+  <span>Each flight steers by single camera frames: <b>{usable_s2}</b> of them give a usable position fix</span>
   {scale_svg}
   <p class="hero-sub">confident <i>and</i> within {TARGET_M:.0f}&nbsp;m. The
   loop minimises the <b>mission penalty</b>:
@@ -4898,9 +4925,12 @@ a precise point inside the chosen tile.</p>
 experiment in the <a href="gallery/index.html">research log</a>, with the
 figures on the <a href="gallery/inference-paths.html">model designs</a>
 page.</p>
-<p>The ${FLIGHT_COMPUTER_USD} in the question is the board it is sized for:
-an {FLIGHT_COMPUTER} ({FLIGHT_COMPUTER_LOCAL_PRICE}), an ESP32&#8209;P4 with
-16&nbsp;MB of flash, 32&nbsp;MB of memory and a camera connector. The file
+<p>The ${FLIGHT_COMPUTER_USD} in the question is the module it is sized for:
+an ESP32&#8209;P4 with 16&nbsp;MB of flash and 32&nbsp;MB of memory, such as
+the {FLIGHT_COMPUTER} ({FLIGHT_COMPUTER_LOCAL_PRICE}; less in production
+quantities), on a carrier board that brings out the camera connector. The
+cheapest complete development board with the same memory and a camera
+connector, the Olimex ESP32&#8209;P4&#8209;DevKit, costs &euro;16. The file
 fits that flash once its weights are stored as 8-bit integers instead of
 32-bit floats, about a quarter of the size. That conversion, and running
 the model on the chip itself, have not been tested yet.</p>
@@ -5383,6 +5413,293 @@ updated {now}</p>"""]
 
 
 ERAS = [{'d': '20 Jul', 't': '17:05', 'kind': 'start', 'title': 'Bootstrap — and two course corrections before a single experiment ran', 'trig': 'A spec, an empty repo, and a MacBook Air.', 'body': "The harness shipped on Sentinel-2 imagery at 10&nbsp;m/px. Within twenty minutes that was rejected and the frozen fetch stage rewritten for 1&nbsp;m/px open orthophotos — a 50&times; finer ground resolution, re-frozen before any research began. Hours later, looking at the six lighting renders, the human spotted that five of them were effectively identical: the simulated auto-exposure was re-brightening every bucket under its gain ceiling. The metric's &ldquo;six lighting conditions&rdquo; were very nearly a fiction. The loop was stopped and the relighting rebuilt.", 'q': 'Assume the UAV is at 100m altitude &mdash; find better satellite imagery that does NOT widen the sim-to-real gap', 'q2': 'honestly, all times other than night look the same to me', 'state': '7 bootstrap experiments, archived. Baseline 3,216.74&nbsp;m.'}, {'d': '20 Jul', 't': '20:35', 'kind': 'science', 'title': 'The human writes the anti-plateau rule himself', 'trig': 'The first loop runs flatten out.', 'body': 'Watching early experiments circle the same mechanism, he dictated the rule that would govern the loop for the next ten days — and which later hardened into code after five failed attempts to enforce it by prompt alone.', 'q': 'If three or more consecutive experiments were reverted, do not attempt another variation of the last refuted mechanism.', 'state': 'Loop running unattended overnight on a laptop.'}, {'d': '21 Jul', 't': '07:58', 'kind': 'infra', 'title': 'Rented GPU — decided in eleven minutes', 'trig': 'Experiments taking 20&ndash;50 minutes each on a MacBook Air.', 'body': "Not thermals, not a training failure — wall-clock per experiment. $200 went onto a RunPod account eleven minutes after the question was asked, and the <i>entire</i> loop moved to the pod, headless agents included. The pod's database was declared production, one-directional: local runs became testing only.", 'q': "I've added $200 to my runpod account.", 'state': 'Repo private on GitHub. Loop runs 24/7.'}, {'d': '21 Jul', 't': '12:11', 'kind': 'scope', 'title': 'The project goes public', 'trig': 'A decision to publish the research trail, not just the result.', 'body': "GitHub Pages, a homepage entry, and a title chosen from a shortlist. The same day he set the north star that still governs design decisions: that anyone should be able to draw a box and generate their own tiny, self-contained model, freely. He also stress-tested §6's premise — <i>how should it know about held-out spots inside Berlin?</i> — and let it stand. That question turned out to be the right one, ten days early.", 'q': 'I like &lsquo;Think globally, memorize locally&rsquo; a lot. And &lsquo;Not all who wander are lost&rsquo;.', 'state': 'Public site live: overview, research log, model designs, lineage.'}, {'d': '22 Jul', 't': '00:50', 'kind': 'infra', 'title': 'Infrastructure failures recorded as science', 'trig': 'A frozen site at one in the morning.', 'body': "Experiment 17's training code had been caching ~5.7&nbsp;GB of renders <i>per iteration</i> and the harness was committing them to Git LFS. The pod's 50&nbsp;GB volume filled at 23:34. Two experiments recorded as &ldquo;gated fail&rdquo; had not failed on their merits at all — they were disk crashes written into the research record as results. Later the same day GitHub Actions ran out of disk on 1.45&nbsp;GB of leftover debug PNGs.", 'q': 'Okay, the last 24h have been bumpy to say the least. Experiments break, commits can&rsquo;t get pushed to origin, now this.', 'state': '~40&nbsp;GB reclaimed. 25&nbsp;MB commit guard added. Hourly health check created.'}, {'d': '22 Jul', 't': '11:59', 'kind': 'science', 'title': 'Five attempts to make a pivot mean something', 'trig': 'The loop claiming to pivot while still building on MobileNetV3.', 'body': "A demanded pivot kept returning the champion's backbone with different machinery bolted around it — experiments 37, 38, 40. Four prompt-level fixes failed. What finally worked was enforcement in code: <code>backbonecheck.py</code>, which fingerprints backbone identity from the <i>post-implementation source</i> and rejects before training. The lesson generalised: prompt instructions are not guarantees.", 'q': 'That&rsquo;s not a PIVOT but a continuation.', 'q2': 'fuck this. fuck you. stop the current loop. &hellip; make the next experiment a fucking pivot', 'state': 'Champion 743&nbsp;m, unmoved. Trust in the harness at its lowest.'}, {'d': '23 Jul', 't': '13:00', 'kind': 'infra', 'title': 'Off RunPod — for process, not compute', 'trig': 'Three days of stuck commits, merge conflicts and platform friction.', 'body': "The decisive reframe came later that afternoon: the pain had never been RunPod, it was <b>two git writers on one branch</b> — the pod committing experiments while the laptop committed harness and docs. RunPod's last act was a stopped pod that could not resume because no GPU was free. Modal was chosen specifically because a <i>stateless</i> trainer that never touches git makes the two-writer problem impossible by construction.", 'q': 'It&rsquo;s been a fucking nightmare. I don&rsquo;t care about the compute.', 'state': 'Laptop = single writer. Modal A100 = stateless trainer, $30 credits.'}, {'d': '23 Jul', 't': '13:33', 'kind': 'scope', 'title': 'Scope narrowed to Berlin — and restored six hours later', 'trig': 'Local M1 training too slow for four areas.', 'body': 'Berlin-only, figures off, holdout skipped — a deliberate cut to buy iteration speed. But <code>state/best.json</code> did not follow the change, so for a while the loop was scoring four-area results against a Berlin-only yardstick. Once Modal made four areas cheap again, the cut was reversed and 743&nbsp;m restored as the number to beat.', 'q': 'I&rsquo;d rather see us move faster.', 'state': 'Back to the four-area §6 metric by 20:17.'}, {'d': '24&ndash;29 Jul', 't': '', 'kind': 'silence', 'title': 'Six days of silence — an abandonment, not a pause', 'trig': 'A training call that died at 00:25 and nobody noticed.', 'body': 'All four Modal A100 calls returned <i>cancelled by user or a failure</i> twenty-seven minutes in. The loop stopped. Git shows zero commits for six days; the only interaction in the entire window is a single <code>/compact</code> on the 29th. Read from the commit history alone this looks like a quiet week. It was a silent failure nobody was watching for.', 'q': 'I believe I cut that off because it took longer than expected.', 'state': 'Frozen: champion 743&nbsp;m, 54 experiments, 21 consecutive failures.'}, {'d': '30 Jul', 't': '18:26', 'kind': 'science', 'title': 'Attacking the premises instead of the hyperparameters', 'trig': 'A plateau six days old and a cold restart.', 'body': "Within three hours: a literature sweep asking whether the problem was already solved (no published system matches the constraint set — no on-board reference gallery, one compact model, km-scale); an offer to abandon the project's most-defended rule; and a 3D-shadow relighting idea, raised and parked. The constraint was then closed <i>empirically</i>: a retrieval-index probe ran three rounds and scored ~2,700&nbsp;m against the champion's 743&nbsp;m. Parked, not disproven — it never ran at real training scale.", 'q': 'Maybe the platonic idea of &lsquo;everything is in the weights&rsquo; is not worth keeping.', 'state': 'Four experiments, four reverts. Modal credits exhausted at 23:00.'}, {'d': '30 Jul', 't': '20:23', 'kind': 'infra', 'title': 'The real bottleneck was a PNG', 'trig': '&ldquo;Why does one experiment still take an hour?&rdquo;', 'body': 'Profiling found each ~120&nbsp;MB lighting render being decoded from disk every single epoch: <b>78% of training wall-clock</b>, against 14.5% for the actual forward and backward passes. Two prior theories — batch transfer and GPU compute — were wrong by an order of magnitude. Caching the decode cut training from ~40 to ~26 minutes.', 'q': 'yup, let&rsquo;s instrument to better understand what&rsquo;s taking so long.', 'state': "The evening's two biggest wins were both infrastructure. The metric did not move."}, {'d': '31 Jul', 't': '09:00', 'kind': 'scope', 'title': 'berlin-slim — trading scope for iteration speed', 'trig': 'Sixty-three experiments, still ~37&times; from target.', 'body': "A deliberate fork: one locale, daytime imagery only, no synthetic relighting, figures off, pivot gate off. The framing was explicit — <i>what if overfitting is a feature?</i> Nail one city first, worry later about whether the technique generalises. The milestone moved from 20&nbsp;m to 100&nbsp;m, derived from the champion's own Berlin-daytime numbers rather than picked.", 'q': 'I think we&rsquo;ve over-scoped and over-engineered the whole thing.', 'state': 'Fresh lineage. Baseline re-measured.'}, {'d': '31 Jul', 't': '11:20', 'kind': 'measure', 'title': 'The evaluation had been asking an impossible question', 'trig': 'One roundabout, surrounded by red dots.', 'body': 'Why was the Gro&szlig;er Stern — a seven-way star that exists once in Berlin — never located? Because <b>zero</b> training crops contained it and <b>twelve</b> eval questions did: it sits three pixels from an eval block, and the anti-leakage buffer had deleted every training view. Measured across the city: <b>28.2%</b> of Berlin appeared in no training crop, <b>100%</b> of eval questions stood on never-seen ground, and 65% of eval frames contained not one familiar pixel. For a system whose job is to memorise one city, that is unanswerable by construction. The split was rebuilt to hold out <i>viewpoints</i>, not <i>regions</i>.', 'q': 'a clear star-like circular roundabout &hellip; should score higher, no?', 'state': 'Training coverage 71.8% &rarr; 93.5%. Eval on seen ground 0% &rarr; 100%.'}, {'d': '31 Jul', 't': '13:10', 'kind': 'measure', 'title': 'The score rewarded guessing over learning — twice', 'trig': 'A map full of green dots, discarded; a map with one, kept.', 'body': 'A model that guesses the map centre has a tight, mediocre error distribution and a respectable <i>median</i>. A model that genuinely memorises is bimodal — some places nailed, others badly missed — and scores <i>worse</i> on a median. The metric had been reverting the only experiment that had begun to work. Replacing it with a geometric mean fixed the symptom, but that was still a proxy chosen to make progress visible rather than to state what the aircraft needs. The score is now the product requirement itself: usable fixes minus dangerous ones.', 'q': 'There is ONLY the product requirement.', 'state': 'Every <i>verdict</i> before today is void &mdash; 76 experiments judged on a broken ruler. The experiments themselves were later re-measured and put back on the record.'}, {'d': '31 Jul', 't': '13:40', 'kind': 'measure', 'title': 'And the harness had been deleting its own work', 'trig': 'The corrected metric promoting a previously-reverted experiment to champion.', 'body': 'Its implementation no longer existed. Reverting an experiment ran <code>git checkout -- model/</code>, discarding the source outright; only kept experiments ever entered the git trail. Safe only if the metric is correct and permanent — an assumption nobody had written down, and which had just been disproved twice in one day. Of sixty archived experiments, thirteen survive.', 'q': 'We can&rsquo;t LOSE our fucking experiment implementations EVER.', 'state': 'All four code-discarding paths now snapshot first.'}, {'d': '31 Jul', 't': '14:00', 'kind': 'result', 'title': 'With honest instruments, the approach works', 'trig': 'The first experiment measured on a correct evaluation and a correct metric.', 'body': 'Full-lattice coverage training — the same architecture the previous metric had thrown away as a failure — took the mission score from <b>2.001</b> (confident and wrong on every single frame, the worst value the scale allows) to <b>0.183</b>, and two further experiments took it to <b>0.040</b>. <b>96.5%</b> of camera frames now yield a usable fix and <b>0.5%</b> are confidently wrong; the typical miss when it answers is 27&nbsp;m, comfortably inside the 100&nbsp;m target. The region-holdout diagnostic reads 0% usable, confirming this is genuine memorisation rather than generalisation — exactly the design intent.', 'q': '', 'state': 'The plateau was never the task being hard. The instruments were pointed at the wrong thing. Re-measured on the corrected ones, the best of the previous 76 experiments scores 1.311 &mdash; worse than saying nothing at all.'}]
+# 31 July - 3 November (issue #23): story cards for the Prignitz detour, the
+# flight test and the capture-holdout era.
+ERAS += [{'d': '31 Jul&ndash;1 Aug',
+  't': '22:26',
+  'kind': 'scope',
+  'title': 'A rural era, opened at night and rewound by noon',
+  'trig': 'The Berlin champion, run unchanged on Prignitz, scored 0.113.',
+  'body': 'The loss sat in one place. Usable fixes barely moved (92.5% against Berlin&rsquo;s '
+          '96.5%), abstention barely moved, and <b>false fixes rose 7.5&times;</b>, 0.5% &rarr; '
+          '3.75%: a field that looks like another field draws a confident wrong answer. An era '
+          'opened at 22:26 as one model over both boxes, was cut back to Prignitz alone fifteen '
+          'minutes later, and ran three experiments in four hours. The seed reproduced 0.113. A '
+          'rotation-consensus decode &mdash; average the belief over four headings so a look-alike '
+          'must win from all of them &mdash; made false fixes <i>worse</i>, 3.75% &rarr; 4.25%: '
+          'the rural confusions are rotation-stable, so whatever fixes them has to act in '
+          'training. The third, continuous-vantage training, was designed and never trained. At '
+          '11:47 the next morning the repository was rewound to the commit before the era and its '
+          'rows removed. Nothing failed on its merits; the point was one question at a time.',
+  'q': '',
+  'state': 'Trunk back on berlin-slim at 0.040. The raw record lives at the git tag '
+           '<code>prignitz-detour-record</code>. The untried move waited three months: on 2 '
+           'November it ran on Berlin&rsquo;s held-out photograph as experiment 22 and scored '
+           '0.103 against a best of 0.078.'},
+ {'d': '28 Aug',
+  't': '12:47',
+  'kind': 'result',
+  'title': 'The champion flies: 91 of 100 virtual flights arrive',
+  'trig': 'Four weeks without a commit, and a question: could this get an aircraft from a to b?',
+  'body': 'A simulator outside the frozen pipeline flies a point-mass fixed-wing through wind, '
+          'gusts and gyro bias it cannot see, with the exported champion&rsquo;s fixes as the only '
+          'position correction. Camera frames are real orthophoto crops at the true pose; '
+          'thresholds are the scorer&rsquo;s own; false fixes are accepted like any other. The '
+          'first Monte Carlo scored <b>53/100</b>, and the bug was in the simulator: its navigator '
+          'had no heading reference, so gyro bias spun flights off the map even with perfect '
+          'fixes. With a magnetometer (yaw only &mdash; vision stays the sole position source) '
+          '<b>91/100</b> flights arrive within 100&nbsp;m, median miss 45&nbsp;m. The same flights '
+          'with the camera off: 0/100. Of 207 in-flight false fixes, 167 stood on the ~3% of '
+          'Berlin the harness deliberately never trains.',
+  'q': 'if our champion is used in the sim and it is NOT able to get to the target with an '
+       'error-radius of say 100m, then we want to be transparent and honest about it.',
+  'state': 'Flight-path page live; the overview opens with one flight replayed. The research then '
+           'went quiet for another month.'},
+ {'d': '28 Sep',
+  't': '17:13',
+  'kind': 'measure',
+  'title': 'The champion knew a photograph, not the city',
+  'trig': 'A question: are Google&rsquo;s tiles different from the ones we trained on?',
+  'body': 'Scored on Google&rsquo;s imagery of the same streets (a local diagnostic, never data) '
+          'the 0.040 champion read <b>1.971</b>: confidently wrong on 97% of frames, median miss '
+          '3.5&nbsp;km, which is what a random guess over the box scores. It was not Google. On '
+          'its <i>own</i> training raster, +20 on every pixel gave 1.453 and a 1&nbsp;px blur '
+          '1.271, while a 3&nbsp;px shift changed nothing. Rotation had been its only '
+          'augmentation, so it had memorised one file&rsquo;s pixel values. Berlin&rsquo;s open '
+          'TrueDOP surveys of 2022, 2023 and 2024, warped onto the same grid, broke it the same '
+          'way: 1.866, 1.776, 1.873. The limit had been written down on 10 August and left there. '
+          'The same-photograph evaluation could never see it, and the loop only fixes what its '
+          'ruler measures.',
+  'q': 'So, what do you think the problem is because the two maps side-by-side look identical '
+       'except for the slight color',
+  'q2': 'Right now, we&rsquo;re not doing anything with the geo-image tiles, neither for training '
+        'or eval, right, like rotating, adding noise, blurring, etc.?',
+  'state': '0.040 on the photograph it trained on; 1.78&ndash;1.87 on every other photograph of '
+           'Berlin.'},
+ {'d': '28 Sep',
+  't': '18:04',
+  'kind': 'scope',
+  'title': 'A sixth era, on a testing branch: train on three photographs, score on a fourth',
+  'trig': 'Every other photograph of Berlin breaks the champion.',
+  'body': 'The frozen pipeline gains <i>captures</i>: several open photographs of one box on one '
+          'grid. Berlin trains on three &mdash; the Brandenburg DOP20 the champion knew, TrueDOP '
+          '2022 and 2023 &mdash; and is scored on <b>TrueDOP 2024</b>, which nothing under '
+          '<code>model/</code> may open. The views stay held out as before; now the photograph is '
+          'new as well. Asked why that matters for a model meant to memorise everything: the '
+          'held-out photograph stands in for the aircraft&rsquo;s camera, a photograph nobody has, '
+          'exactly as off-lattice views stand in for its position; a shipped model can still train '
+          'on all four. The lineage was wiped and all 83 earlier experiments re-scored on the new '
+          'ruler &mdash; best 1.231, reached by abstaining on 77% of frames. The champion&rsquo;s '
+          'code on three photographs scored <b>1.651</b> and had memorised only the last one of '
+          'each epoch: 0.015 on 2023, 1.533 on the DOP20.',
+  'q': 'How about we go on a testing branch and only once we feel like we&rsquo;ve gotten '
+       'something better, think about main and updating the report?',
+  'q2': 'if it locates Berlin from an unseen photograph of Berlin - why does that matter if we '
+        'want to memorize everything?',
+  'state': 'Baseline 1.651 (3.3% usable, 68% confidently wrong). <code>main</code> and the '
+           'published site untouched.'},
+ {'d': '28 Sep&ndash;30 Oct',
+  't': '18:20',
+  'kind': 'silence',
+  'title': 'A month on hold, then five experiments on the laptop',
+  'trig': 'A laptop running hot, and needed for other work.',
+  'body': 'The baseline landed and the loop waited. On 30 October it started locally &mdash; the '
+          'Modal credits had gone to another project &mdash; with Fable 5.1 designing and Opus 5.5 '
+          'implementing, and a brief that read the re-scored history as a map, old verdicts left '
+          'out. The first round moved the held-out number for the first time: training each batch '
+          'on the same places in all three photographs, 1.651 &rarr; <b>1.583</b>; '
+          're-photographing every view at random brightness, contrast, colour, blur and noise, '
+          '<b>1.271</b>. A cross-photograph feature-consistency loss and a whole-frame receptive '
+          'field were reverted. Each experiment took 1&ndash;3&nbsp;hours on the M1. To save time, '
+          'figures were drawn only for kept experiments; the human reversed that the next day and '
+          'made every-experiment figures a standing rule.',
+  'q': 'once baseline lands, we need to not yet start the loop because the machine is getting so '
+       'hot and I need to use it a bit more.',
+  'q2': 'We should encourage to reuse any and all ideas from previous experiments as the agent '
+        'sees fit.',
+  'state': 'Best 1.271 (exp 4): 11.75% usable, 38.75% confidently wrong. The training photographs '
+           'still read 0.52&ndash;0.73; the gap between them and the held-out one was the whole '
+           'problem.'},
+ {'d': '31 Oct&ndash;1 Nov',
+  't': '16:29',
+  'kind': 'infra',
+  'title': 'Off the laptop again &mdash; but the code came first',
+  'trig': 'Experiments taking hours each on a fanless laptop.',
+  'body': 'The remote-compute research found the laptop was not the main problem: the training '
+          'script rotated every crop in PIL on one CPU core and stopped the GPU several times a '
+          'step to read numbers back, using about 3&ndash;4% of the M1&rsquo;s GPU. Cutting and '
+          'rotating crops on the GPU took an epoch from 12.8 to 6.5 minutes on the M1 with the '
+          'score unchanged (1.246 against 1.271). Then AWS: a GPU machine created per run in '
+          'Frankfurt, shipped only the three training photographs, terminated after. The quota was '
+          'approved within three hours; the first run trained in <b>305&nbsp;s</b> against '
+          '52&nbsp;min locally, for about $0.15. Modal&rsquo;s A100 was faster and cheaper per run '
+          '(151&nbsp;s, $0.09) but capped at $30 a month, so AWS stayed the default. The laptop '
+          'still runs the agents; it fell asleep mid-loop once, and now keeps itself awake.',
+  'q': 'My goal being that we can speed up experiments significantly instead of overheating my m1 '
+       'laptop for days.',
+  'q2': 'Okay, but you know that we only can spend $30 on modal, right? So, it&rsquo;s really only '
+        'a backup option anyways.',
+  'state': 'Experiment 7, the first trained on AWS, took 44 minutes end to end. Best 1.096: a '
+           'two-member committee that must agree before a fix is trusted.'},
+ {'d': '1 Nov',
+  't': '17:49',
+  'kind': 'measure',
+  'title': 'A rule from the bootstrap threw out the era&rsquo;s best model',
+  'trig': 'Another experiment, half an hour of work, recorded as a failure.',
+  'body': 'Experiment 11 replaced the cell classifier with a cosine head &mdash; every '
+          'photograph&rsquo;s picture of a place must point the same way &mdash; and scored '
+          '<b>0.963</b>: 10.75% usable, 7.0% confidently wrong, the first model of the era better '
+          'than silence. It was filed as a gated fail because it answered on 17.75% of frames, '
+          'under the scorer&rsquo;s 20% coverage floor. The floor dated from the bootstrap, when '
+          'the score was an error statistic and abstaining could game it. The mission score '
+          'already charges for every abstention, so the floor had come to punish exactly the '
+          'honesty the product asks for. It was replaced by one rule: a model must produce at '
+          'least one usable fix. Experiment 11 was re-scored from its saved model and promoted; '
+          'four archived models that had failed only on the floor were re-measured.',
+  'q': '',
+  'state': 'Best 1.096 &rarr; 0.963. The design brief now states the usable-fix rule.'},
+ {'d': '1 Nov',
+  't': '18:04',
+  'kind': 'infra',
+  'title': 'Four designers, one prompt',
+  'trig': 'Fable&rsquo;s design stage taking 11&ndash;15 minutes an experiment.',
+  'body': 'The prompt the loop had just given experiment 12 went, verbatim, to Haiku 5.5, Sonnet '
+          '5.5, Opus 5.5 and Fable 5.1, each in its own copy of the repository at the same '
+          'snapshot; design stage only, no training. A fresh agent graded the five designs blind '
+          '(the loop&rsquo;s own Fable run counted as a second Fable sample), checking every claim '
+          'against the database and re-exporting the sizes. <b>Opus: 3.9&nbsp;min, $1.32, '
+          '24/30</b>. Fable: 15.1&nbsp;min, $5.06, 24/30 &mdash; and 11.2&nbsp;min, 19/30 for the '
+          'loop&rsquo;s run. Sonnet 20, Haiku 12; Haiku invented a working directory and never '
+          'opened the database. The reviewer&rsquo;s size check also caught the loop&rsquo;s '
+          'experiment 12 at 4.29&nbsp;MB once its two members&rsquo; weights diverged &mdash; over '
+          'the 4&nbsp;MiB gate.',
+  'q': 'Let&rsquo;s run the comparison. One design per model but the same prompt for all',
+  'q2': 'No no no no. I only want to compare the design phase.',
+  'state': 'Design moves to Opus 5.5 from experiment 13. Opus 5.5 still implements.'},
+ {'d': '1 Nov',
+  't': '18:31',
+  'kind': 'measure',
+  'title': 'The size gate weighed the wrong file',
+  'trig': 'Experiment 12 failed the 4&nbsp;MiB gate by about 150&nbsp;KB.',
+  'body': 'The limit had been typed into the bootstrap commit and never derived. It weighed the '
+          'fp32 ONNX file, while the documented path to the ESP32-P4 quantises to int8, about a '
+          'quarter of the size: the July champion is 2.94&nbsp;MB as weighed and 0.78&nbsp;MB as '
+          'it would fly, so the gate overstated every model by ~3.8&times;. Current P4 boards '
+          'carry 16&nbsp;MB of flash and 32&nbsp;MB of PSRAM. Half the flash for the model is '
+          '8&nbsp;MiB int8, written as <b>32&nbsp;MiB fp32</b> since the scorer still weighs the '
+          'fp32 file. No archived experiment had ever failed on size, so the history did not move. '
+          'Experiment 12 had: re-scored from its saved model, it became the era&rsquo;s '
+          'breakthrough.',
+  'q': 'I&rsquo;ve looked at recent ESP32 boards and they have more than 4MiB in storage. I think '
+       'we could fix the size limit to a more current max.',
+  'q2': 'Yes, let&rsquo;s change the size limit as you propose, re-score 12 and then I&rsquo;d '
+        'say, let&rsquo;s switch design to Opus 5.5',
+  'state': 'Gate 32&nbsp;MiB fp32 (~8&nbsp;MiB int8). On-chip latency and power still unmeasured.'},
+ {'d': '1 Nov',
+  't': '18:34',
+  'kind': 'science',
+  'title': 'Borrowed eyes',
+  'trig': 'Eleven experiments had moved every stage except the one that decides what a place looks '
+          'like.',
+  'body': 'Through all of them the held-out photograph&rsquo;s usable rate sat between 6% and 14%, '
+          'while fit on the training photographs swung from 18% to 95%. The trunk &mdash; four '
+          'small convolutions initialised at random &mdash; had only ever seen three photographs '
+          'of one city, and kept learning three fingerprints per place. Experiment 12 replaced it '
+          'with the first blocks of an <b>ImageNet-pretrained MobileNetV3-Small</b>, fine-tuned '
+          'gently, so the description of a place starts from invariances learned on a million '
+          'photographs. Held-out usable rose 10.75% &rarr; <b>49.5%</b>, score 0.963 &rarr; '
+          '<b>0.560</b>. The same trunk had run for about thirty experiments in July, trained on '
+          'one photograph under a confidence head that never abstained; it had never been asked '
+          'this question. Reading it two blocks deeper gave 0.435, mixing photographic style '
+          'inside it 0.395. Then experiment 15 noticed the borrowed filters learned at 224&nbsp;px '
+          'and were being fed 128: resizing the frame in the graph, no new weights, gave '
+          '<b>0.293</b>, 74% usable.',
+  'q': 'Yes, I was about to ask about how this relates to our history because we tried mobilenet a '
+       'lot in the past.',
+  'state': 'Four kept experiments in under two hours: 0.963 &rarr; 0.560 &rarr; 0.435 &rarr; 0.395 '
+           '&rarr; 0.293.'},
+ {'d': '1&ndash;2 Nov',
+  't': '21:47',
+  'kind': 'result',
+  'title': '0.078: 93% of frames from a photograph it never saw',
+  'trig': 'Every gain so far had come from the borrowed trunk doing more of the work.',
+  'body': 'So the loop kept upgrading the eyes. A pretrained MobileNetV2: <b>0.155</b>, 86.75% '
+          'usable. An EfficientNet-B0: <b>0.085</b>, 92.5%. Then experiment 20 flew the average of '
+          'the weights visited over the second half of training instead of the last step: '
+          '<b>0.078</b> &mdash; 93.0% of frames from the held-out 2024 photograph give a usable '
+          'fix, 0.75% are confidently wrong, median miss 36&nbsp;m. On the three training '
+          'photographs it is usable on every frame. The July champion scored 1.873 on the same '
+          'photograph. The models grew from 4.3 to 31.7&nbsp;MB as weighed &mdash; inside the new '
+          'gate &mdash; and an experiment from under half an hour to about two; the human declined '
+          'to cap it. The next seven experiments, through 2 November, did not beat it.',
+  'q': 'No extra changes or budget. We&rsquo;re already so much faster anyways. No &ldquo;must '
+       'finish within...&rdquo;',
+  'q2': 'we&rsquo;ll run more. basically until we get to our 98% or better mission score.',
+  'state': 'Best 0.078 (exp 20). The region-holdout diagnostic still reads 0.5% usable: this is '
+           'memorisation of Berlin&rsquo;s ground, not generalisation &mdash; by design.'},
+ {'d': '2&ndash;3 Nov',
+  't': '13:32',
+  'kind': 'infra',
+  'title': 'Cloud failures filed as refuted ideas &mdash; twice',
+  'trig': 'Three gated fails in twelve hours.',
+  'body': 'None of the three had tested its idea. Experiment 17 crashed thirty seconds in on a '
+          'missing import (re-run as 18, reverted on merit). Experiment 21 had <i>finished</i> '
+          'training on AWS; the laptop lost DNS while polling and the harness filed the model it '
+          'never collected as a failure &mdash; recovered and scored by hand it reads 0.090, worse '
+          'than the best anyway, so right for the wrong reason. Experiment 24 never reached a GPU: '
+          'Frankfurt had none free. The same lesson as July&rsquo;s pod disk: an infrastructure '
+          'failure written into the research record reads as a refuted idea. Network drops are now '
+          'retried, a full region waited out, and a cloud failure is recorded as <b>NOT '
+          'TESTED</b>. The next morning it happened again by another door: experiment 28 trained '
+          'healthily until the machine&rsquo;s own 150-minute safety shutdown cut it off at epoch '
+          '6 of 8, and no result came back. The shutdown is now a forgotten-machine guard at 480 '
+          'minutes, and hitting it is NOT TESTED too.',
+  'q': 'Can you look into the three gated fails we had in the past 12h of running the experiments?',
+  'q2': 'Let&rsquo;s keep 21 and 24 as-is. No need to change them.',
+  'state': 'Experiment 24&rsquo;s idea re-ran as 25 (0.083, reverted). Experiment 28 is being '
+           'retrained. Since experiment 19 every model also exceeded the 25&nbsp;MB commit guard '
+           'and had been quarantined off the record; the guard is now 40&nbsp;MB and all of them '
+           'are restored.'},
+ {'d': '2&ndash;3 Nov',
+  't': '12:19',
+  'kind': 'result',
+  'title': 'False fixes gather in places, not at random',
+  'trig': 'The flight test, re-flown with the new champion over the photograph it never saw.',
+  'body': 'Same seeds, same routes as in August, now with experiment 20 and the held-out 2024 '
+          'photograph as both camera and map: <b>95/100</b> flights arrive within 100&nbsp;m '
+          '(August&rsquo;s champion, flying over its own training photograph: 91/100), the worst '
+          'miss falls from 7,362 to 212&nbsp;m, and nothing leaves the map. Then six more mission '
+          'types, forty flights each, each against a no-camera control. Cold start 98%, a '
+          '150&nbsp;m loiter 90%, return home 88%, a survey grid 75%, a four-spot waypoint tour '
+          '55%, the Spree corridor 50%; without the camera, at most 10%. Waypoint error does not '
+          'build up from leg to leg; a mission fails when it meets one bad fix, and 51 of 58 '
+          'failed flights had one. Along the Spree, <b>126 of 128</b> false fixes sat in two '
+          'stretches &mdash; at the Spreebogen by the Chancellery, 18% of all fixes there were '
+          'confidently wrong.',
+  'q': 'Instead of having 100 A -&gt; B missions, could we brainstorm a few different types of '
+       'missions such as &ldquo;A to B&rdquo;, &ldquo;Return Home&rdquo;, &ldquo;Visit multiple '
+       'spots&rdquo; etc.',
+  'state': 'The flight-path page carries all seven missions, on the branch. A per-place false-fix '
+           'map is now a thing the simulator can draw and the scorer cannot.'},
+ {'d': '3 Nov',
+  't': '13:12',
+  'kind': 'scope',
+  'title': 'Better than its baseline &mdash; and still not merged',
+  'trig': 'The era&rsquo;s merge condition met many times over.',
+  'body': 'The branch was to stay off <code>main</code> until it beat its own baseline; 0.078 '
+          'against 1.651 does. It stays off anyway, because the next change is to how experiments '
+          'are run, not to the model: screening a hypothesis on a small piece of the map before '
+          'paying for the whole city (#18), and several lineages searching in parallel from '
+          'different seeds or researcher personalities (#19). Meanwhile the published site still '
+          'tells the July story &mdash; 0.040 on one photograph &mdash; and a sweep counted the '
+          'evolution page with no mention of this era at all. Two further eras are recorded, not '
+          'started: usable fixes from 25 to 100&nbsp;m altitude, the model told its height (#10); '
+          'and ArduPilot&rsquo;s simulator flying with its GPS switched off and this model as its '
+          'only position source (#11) &mdash; simulated, never physical.',
+  'q': 'No, no merging yet since we&rsquo;re doing a whole new take on experiments.',
+  'q2': '&hellip; how we could make &ldquo;smaller bets&rdquo; in general',
+  'state': '<code>main</code> unchanged since 1 August. Branch best 0.078. Site refresh collected '
+           'in #23, to land with the merge.'}]
 
 KIND = {'start': ('#4a473e', 'bootstrap'), 'infra': ('#8a6a1e', 'infrastructure'), 'science': ('#2f5d7c', 'research direction'), 'scope': ('#5b6e4a', 'scope'), 'silence': ('#9b998c', 'silence'), 'measure': ('#8c2f1f', 'measurement bug'), 'result': ('#3c9c3c', 'result')}
 
@@ -5471,6 +5788,166 @@ EVOLUTION_CSS = """
 EVOLUTION_SVG = evofig.build_svg()
 
 EVOLUTION_TIPS = r"""{"gap": {"t": "six days of silence", "d": "The loop had died at 00:25 on the 24th and nobody was watching. Git shows a quiet week; the transcripts show an abandonment. The only interaction in the whole window is a single /compact on the 29th.", "k": "silence"}, "d0": {"t": "Sentinel-2 10 m/px", "d": "The bootstrap's imagery source - too coarse for a 100 m-altitude camera footprint. Abandoned inside 20 minutes.", "k": "abandoned"}, "d1": {"t": "Prompt-only pivot rules", "d": "Four attempts to make 'pivot' mean something by instruction alone. Experiments 37, 38 and 40 all came back on the same backbone.", "k": "abandoned"}, "d2": {"t": "3D shadow relighting", "d": "Simulate real sun angles from 3D terrain instead of flat imagery. Raised and parked the same evening; still open.", "k": "abandoned"}, "d3": {"t": "Retrieval-index probe", "d": "Shipping a few MB of reference index - the project's most-defended constraint - was briefly on the table. Three rounds, ~2,700 m against the champion's 743 m. Parked, not disproven.", "k": "abandoned"}, "s0": {"t": "Region-holdout evaluation", "d": "In force for TEN of the project's twelve days. It left 28.2% of Berlin in no training crop and put 100% of test questions on ground the model had never seen - unanswerable for a memorisation system. Every result measured against it is void.", "k": "superseded"}, "s1": {"t": "Median error as the score", "d": "Rewards a model that guesses the map centre over one that genuinely memorises. It was caught reverting the only experiment that had begun to work.", "k": "superseded"}, "s2": {"t": "RunPod - rented 4090 pod", "d": "$200 committed eleven minutes after the question was asked; the entire loop moved onto the pod, headless agents included. Abandoned three days later - not for the GPU, for the process friction around it.", "k": "superseded"}, "s3": {"t": "Modal A100 - serverless", "d": "Chosen because a STATELESS trainer that never touches git makes the two-writer problem impossible by construction. $30 of credits, four areas fanned out in parallel, ~26 min/experiment after the decode fix. Ran until the credits ran out.", "k": "superseded"}, "s4": {"t": "Berlin-only scope cut", "d": "Narrowed for six hours to survive on an M1 - but state/best.json didn't follow, so the loop briefly scored four-area results against a Berlin-only yardstick.", "k": "superseded"}, "s5": {"t": "Geometric mean", "d": "Fixed the median's symptom but was still a research proxy, chosen to make progress visible rather than to state what the aircraft needs. Lasted two hours.", "k": "superseded"}, "i0": {"t": "pod disk full", "d": "A 5.7 GB-per-iteration render cache was being committed to Git LFS; the pod's 50 GB volume filled at 23:34. Two experiments recorded as 'gated fail' had not failed on their merits - they were disk crashes written into the research record as results.", "k": "incident"}, "i1": {"t": "Fable hits its cap", "d": "The design model hit 100% of its weekly quota. Three iterations burned 30-minute retry sleeps against a wall before anyone noticed; the design step was switched to Sonnet.", "k": "incident"}, "i2": {"t": "CI out of disk", "d": "GitHub Actions died on 1.45 GB of leftover debug PNGs - over half the repo's live LFS payload, a forgotten dump from early holdout work.", "k": "incident"}, "i3": {"t": "two writers on main", "d": "The pod and the laptop both committing to main all day: repeated rebase dances, and at least one merge that silently reverted the morning's pivot-enforcement work.", "k": "incident"}, "i4": {"t": "pod won't resume", "d": "RunPod's last act: a stopped pod could not restart because the host had no free GPU. Stopped pods don't reserve one. This is what turned a compromise into a full switch.", "k": "incident"}, "i5": {"t": "loop dies unnoticed", "d": "All four Modal calls returned 'cancelled by user or a failure' 27 minutes in, at 00:25. Nobody noticed for six days.", "k": "incident"}, "i6": {"t": "credits exhausted", "d": "$30 of Modal credits gone; the loop stopped two experiments short of its target and compute returned to the laptop.", "k": "incident"}, "m0": {"t": "enforce it in the source, not the prompt", "d": "Four rounds of instructing the loop to pivot had failed. The insight was that a prompt is not a guarantee: the check had to read the code that actually resulted. backbonecheck.py fingerprints the post-implementation source and rejects before training.", "k": "insight"}, "m1": {"t": "the problem is two writers, not the platform", "d": "Three days were spent blaming RunPod. The actual cause was the pod and the laptop both committing to main. Once that was named, the fix was a rule rather than a provider: one git writer, and a remote that only trains.", "k": "insight"}, "m2": {"t": "stop guessing, profile it", "d": "Two theories about the training bottleneck - batch transfer and GPU compute - were both wrong by an order of magnitude. Instrumenting it found a 120 MB PNG being re-decoded every epoch, 78% of wall-clock.", "k": "insight"}, "m3": {"t": "it is never shown the places it is tested on", "d": "One question about one roundabout: zero training crops contained the Grosser Stern, twelve eval questions did. Measured across the city, 100% of test questions stood on ground the model had never seen. The split was rebuilt around held-out viewpoints.", "k": "insight"}, "m4": {"t": "the score must BE the product requirement", "d": "A map full of green hits had been discarded while one with a single hit was kept. Median rewarded guessing the map centre; the geometric mean that replaced it was still a proxy. The score became what the aircraft actually needs: usable fixes minus dangerous ones.", "k": "insight"}, "m5": {"t": "it was starved, not refuted", "d": "The map-cell architecture had gate-failed at 84 seconds of training, seeing a fraction of the city. Given full-lattice coverage - the same architecture, nothing else changed - it took the mission score from 2.001 to 0.183.", "k": "insight"}, "t0": {"t": "Bootstrap", "d": "Spec, empty repo, MacBook Air. Frozen pipeline, naive baseline and the whole harness in one session.", "k": "kept"}, "t1": {"t": "1 m/px orthophotos", "d": "Sentinel-2 at 10 m/px rejected within 20 minutes; the fetch stage re-frozen 50x finer before any experiment ran.", "k": "kept"}, "t2": {"t": "Relighting rebuilt", "d": "Five of six lighting buckets were effectively identical - auto-exposure was re-brightening them all. Caught by eye, not by a test.", "k": "kept"}, "t3": {"t": "Goes public", "d": "GitHub Pages, the research trail published as it runs. North star set: anyone draws a box and gets their own model, freely.", "k": "kept"}, "t4": {"t": "Pivot enforced in code", "d": "Four prompt-level attempts failed to stop the loop rebuilding on the same backbone. backbonecheck.py fingerprints the post-implementation source instead.", "k": "kept"}, "t5": {"t": "One git writer", "d": "The rule that ended three days of chaos: the laptop commits, the remote only trains. Divergence becomes impossible by construction.", "k": "kept"}, "t6": {"t": "PNG decode fix", "d": "Each ~120 MB render was re-decoded every epoch: 78% of training wall-clock against 14.5% for the actual maths.", "k": "kept"}, "t7": {"t": "berlin-slim branch", "d": "Deliberate narrowing to buy iteration speed. What if overfitting is the feature?", "k": "kept"}, "t8": {"t": "0.040 - 96.5% usable", "d": "Four experiments on a corrected evaluation and a metric that states the product requirement. 96.5% of held-out frames give a usable fix, 0.5% are confidently wrong, median miss 27 m. The first of the four was the architecture the old metric had discarded as a failure.", "k": "kept"}, "t9": {"t": "back to berlin-slim", "d": "The rural detour rewound to the commit before it, and the trunk is the berlin-slim line again: model/, state/best.json and the experiment database all back to the 0.040 champion, with the Prignitz rows removed. Nothing about the detour failed on its merits - the decision was to keep pushing one question rather than run two.", "k": "kept"}, "d4": {"t": "Prignitz probe - 0.113", "d": "The Berlin champion, unchanged, trained and scored on the rural box - no code change needed at all, the cell grid comes from the raster. It scored 0.113 against Berlin's 0.040, and the loss was not where it was expected: usable fixes barely moved (92.5% vs 96.5%) and abstention barely moved (3.8% vs 3.0%), while FALSE fixes rose 7.5x, 0.5% to 3.75% - the one outcome the mission score treats as worse than silence. Fields produce confidently wrong answers where city blocks do not. That result opened a rural era at 22:26 the same evening, which ran three experiments in four hours: a native seed reproducing 0.113, a rotation-consensus decode that made false fixes WORSE (0.123, refuted - the rural confusions are rotation-stable), and a third designed but never trained. On 1 August the era was rewound to the commit before it and its rows removed from the database, to keep pushing Berlin rather than open a second front. The measurement stands; the era does not. Raw artifacts at git tag prignitz-detour-record.", "k": "abandoned"}, "gap1": {"t": "two months of silence", "d": "From the rewind on 1 August to 28 September the research did not move. One commit landed on main in that time: the project became Ballpark (17 September). The champion sat at 0.040.", "k": "silence"}, "gap2": {"t": "a month on hold", "d": "The era was opened and its baseline measured on 28 September; the loop itself waited a month because the laptop was running hot and was needed. Modal credits had gone to another project, so local it stayed.", "k": "silence"}, "t10": {"t": "held-out photograph", "d": "The 0.040 champion was scored on Berlin's open TrueDOP 2022, 2023 and 2024 surveys warped onto its own grid: 1.78-1.87, confident and wrong on ~85% of frames, median miss 3.3-3.9 km - a random guess. Adding +20 to every pixel of its OWN training raster scored 1.453. It had memorised one photograph's pixel values. The frozen pipeline gained captures - several photographs of one box on one grid - and the score moved to a photograph the model never trains on. Baseline on it: 1.651.", "k": "kept"}, "t11": {"t": "loop resumes, locally", "d": "Fable 5.1 designs, Opus 5.5 implements, the M1 trains ~46 minutes per experiment over three photographs. First target: five experiments on the new ruler.", "k": "kept"}, "d5": {"t": "Google tiles as a second photograph", "d": "The first foreign photograph tried, and the one that can never be data: Google's terms forbid caching and derivative-model use, and the repo is meant to stay open. It scored 1.971 as a local diagnostic. Kept as a hand-run smoke test for a candidate champion; nothing from it enters the record.", "k": "abandoned"}, "s6": {"t": "Same-photograph evaluation", "d": "Held-out viewpoints, but over the very raster the model trained on. In force from the mission-score fix on 31 July to 28 September. It could not see that the champion knew a file, not a city: +20 brightness on that file cost the model everything, 3 px of shift cost nothing.", "k": "superseded"}, "m6": {"t": "it knew one photograph, not the city", "d": "A lunchtime question - are Google's tiles different from ours? - became a measurement: on any other photograph of the same streets the champion is as accurate as guessing, and stays 97% confident. Colour-matching the foreign photograph recovered abstention but not accuracy. The ruler had to change, because the loop only fixes what its ruler measures.", "k": "insight"}}"""
+# New and corrected tooltips for the marks added on 2026-11-03 (issue #23).
+_EVO_TIPS_ADD = {'t12': {'t': 'flight test: 91/100 arrive',
+         'd': "A simulated fixed-wing flies through wind, gusts and gyro bias with the champion's "
+              'fixes as its only position source. The first run scored 53/100 because the '
+              "simulator's navigator had no heading reference; with a magnetometer, 91/100 flights "
+              'arrive within 100 m, median 45 m. Camera off: 0/100.',
+         'k': 'kept'},
+ 't13': {'t': 'training moves to AWS',
+         'd': 'A GPU machine per run in Frankfurt, shipped only the three training photographs, '
+              'terminated after. First run: 305 s of training against 52 min on the M1, about '
+              '$0.15. The laptop stays the only git writer.',
+         'k': 'kept'},
+ 't14': {'t': '0.560 - borrowed eyes',
+         'd': 'Experiment 12 replaced the from-scratch trunk with ImageNet-pretrained '
+              'MobileNetV3-Small blocks. Usable fixes on the held-out 2024 photograph rose from '
+              '10.75% to 49.5% - after eleven experiments stuck between 6% and 14%. It had first '
+              'been failed by the old 4 MiB size gate.',
+         'k': 'kept'},
+ 't15': {'t': 'native scale: 0.293',
+         'd': 'Experiment 15: the borrowed filters learned on 224 px images and were being fed 128 '
+              'px. Resizing the frame inside the graph, with no new weights, took the score from '
+              '0.395 to 0.293 and usable fixes to 74%.',
+         'k': 'kept'},
+ 't16': {'t': '0.078 - 93% usable',
+         'd': 'Experiment 20: an EfficientNet-B0 trunk, flown as the average of the weights from '
+              'the second half of training. On the held-out 2024 photograph 93.0% of frames give a '
+              'usable fix and 0.75% are confidently wrong, median miss 36 m. The July champion '
+              'scores 1.873 on the same photograph.',
+         'k': 'kept'},
+ 't17': {'t': 'NOT TESTED is not refuted',
+         'd': 'Three gated fails in twelve hours had tested nothing: a missing import, a finished '
+              'model lost to a DNS drop, a region with no free GPU. Cloud failures are now '
+              'retried, and when they still fail they are recorded as NOT TESTED instead of as a '
+              'refuted idea.',
+         'k': 'kept'},
+ 't18': {'t': 'six flight missions',
+         'd': 'Return home, waypoint tour, loiter, survey grid, cold start and a Spree corridor, '
+              'forty flights each, flown by the 0.078 champion over the photograph it never '
+              'trained on. Success 50-98% with the camera, at most 10% without. Failures come from '
+              'single false fixes, and those gather in a few places.',
+         'k': 'kept'},
+ 't19': {'t': 'not merging yet',
+         'd': 'The branch beat its baseline long ago (0.078 against 1.651), but the next change is '
+              'to how experiments are run - small screening bets on part of the map, several '
+              'lineages in parallel - so main and the published site wait. The site refresh is '
+              'collected in issue #23.',
+         'k': 'kept'},
+ 'd6': {'t': 'Cross-photograph consistency losses',
+        'd': "Three attempts to force a place's feature or belief to be identical in all three "
+             'training photographs: a consistency loss (exp 3, 1.648), a within-place variance '
+             'penalty that collapsed training (exp 9), and a Jensen-Shannon belief consistency on '
+             'the strong trunk (exp 23, 0.090). None was kept. What moved the held-out photograph '
+             'was a better trunk, not a stricter loss.',
+        'k': 'abandoned'},
+ 'd7': {'t': 'Continuous vantages',
+        'd': 'Jitter every training framing by up to 12 px so training views cover the ground '
+             'continuously instead of standing on the 24 m lattice. Designed during the Prignitz '
+             "detour in July and never trained there; tried on Berlin's held-out photograph as "
+             'experiment 22, it scored 0.103 against a best of 0.078 and was reverted.',
+        'k': 'abandoned'},
+ 's7': {'t': '20% coverage floor',
+        'd': 'Set in the bootstrap, when the score was an error statistic and a model could game '
+             'it by abstaining. Under the mission score abstention already costs, so the floor '
+             "ended up failing the capture-holdout era's best model (exp 11: 0.963, answering on "
+             '17.75% of frames). Replaced on 1 November by one rule: at least one usable fix.',
+        'k': 'superseded'},
+ 's8': {'t': '4 MiB fp32 size gate',
+        'd': 'Typed into the bootstrap commit and never derived. It weighed the fp32 file while '
+             'the P4 runs int8, about a quarter the size, so it overstated every model ~3.8x. '
+             'Re-derived on 1 November from current boards (16 MB flash): 32 MiB fp32, about 8 MiB '
+             'int8. It had bound only once - on experiment 12, the breakthrough.',
+        'k': 'superseded'},
+ 's9': {'t': 'Local M1 training',
+        'd': 'The M1 had trained since the Modal credits ran out on 30 July. With three '
+             'photographs per epoch an experiment took 1-3 hours and overheated the fanless '
+             'laptop. Moving crop rotation onto the GPU halved an epoch locally; AWS then trained '
+             'the same model about 10x faster.',
+        'k': 'superseded'},
+ 's10': {'t': 'Fable 5.1 designs',
+         'd': 'Designer for experiments 2-12 of the capture-holdout era. A same-prompt bake-off on '
+              '1 November had Opus 5.5 produce a design with the top blind grade, 24/30, in 3.9 '
+              "minutes against Fable's 15.1 for the same grade; design moved to Opus from "
+              'experiment 13.',
+         'k': 'superseded'},
+ 'i7': {'t': 'figure agent overwrites figures',
+        'd': 'A figure agent ran an archived reference script whose unconditional database write '
+             "replaced this era's figures for experiments 1-4 with drawings from an earlier era. "
+             "Restored from each run's own record; the script now writes only when asked.",
+        'k': 'incident'},
+ 'i8': {'t': 'laptop sleeps mid-loop',
+        'd': 'Training had moved to AWS, but the agents and scorer still run on the laptop. It '
+             "went into idle sleep at 12:29: experiment 8's design took 117 minutes of wall time "
+             'for 18 of work, and its figure agent hung. The loop now keeps the laptop awake '
+             'itself.',
+        'k': 'incident'},
+ 'i9': {'t': 'models quarantined',
+        'd': "From experiment 19 on, every exported model was 31.7 MB - above the loop's 25 MB "
+             "commit guard, so the champion's model and four others were moved off the record. The "
+             "guard went to 40 MB, still under the size gate's ceiling, and the models were "
+             'restored.',
+        'k': 'incident'},
+ 'i10': {'t': 'network drop',
+         'd': 'Experiment 21 finished training on AWS and uploaded its model; the laptop lost DNS '
+              'while polling and recorded a failure. Scored by hand from the recovered model it '
+              'reads 0.090, worse than the best anyway.',
+         'k': 'incident'},
+ 'i11': {'t': 'no GPU in Frankfurt',
+         'd': 'Experiment 24 found no g6.xlarge capacity in any eu-central-1 zone, spot or '
+              'on-demand, and was filed as a gated fail without training. Its idea re-ran as '
+              'experiment 25: 0.083, reverted on merit.',
+         'k': 'incident'},
+ 'i12': {'t': '150-min cap cuts exp 28',
+         'd': 'Experiment 28 (a 288 px input) was training normally at ~23 minutes an epoch when '
+              "the machine's own 150-minute safety shutdown fired at epoch 6 of 8, and it was "
+              'filed as a refuted idea. The cap is now 480 minutes, a guard against forgotten '
+              'machines rather than a training budget, and hitting it counts as NOT TESTED. '
+              'Experiment 28 is being retrained.',
+         'k': 'incident'},
+ 'm7': {'t': 'the code was the bottleneck, not the laptop',
+        'd': 'Asked for a cheaper remote GPU, the research found the training script rotating '
+             'every crop on one CPU core and stalling the GPU several times a step - using 3-4% of '
+             "the M1's GPU. Any GPU would have given only 3-5x without fixing that. The fix came "
+             'first, then AWS.',
+        'k': 'insight'},
+ 'm8': {'t': 'pretrained features already cross photographs',
+        'd': 'Experiment 8 tried to distil a foundation model into the small trunk and failed, but '
+             'its probe showed features learned on natural images find the same place across '
+             'surveys far more often than raw pixels do. Experiment 12 put pretrained weights into '
+             'the deployed trunk directly instead.',
+        'k': 'insight'},
+ 'm9': {'t': 'an untested idea is not a refuted one',
+        'd': 'The July lesson, met again: an infrastructure failure written into the record as a '
+             'gated fail tells the design agent an idea was tried and lost. Cloud failures now '
+             'carry their own status, NOT TESTED, and are never read as results.',
+        'k': 'insight'},
+ 'gap3': {'t': 'a month of quiet',
+          'd': "After the flight test's page polish on 29 August nothing moved until 28 September "
+               'except the name: on 17 September the project became Ballpark, after a few hours as '
+               'beeline.',
+          'k': 'silence'},
+ 'gap1': {'t': 'four weeks of silence',
+          'd': 'From the rewind on 1 August to the flight test on 28 August the research did not '
+               'move. The only session in between, on 10 August, wrote down a known limit - '
+               'rotation is the only augmentation - and left it there; seven weeks later it broke '
+               'the champion.',
+          'k': 'silence'},
+ 's3': {'t': 'Modal A100 - serverless',
+        'd': 'Chosen because a STATELESS trainer that never touches git makes the two-writer '
+             'problem impossible by construction. $30 of credits, four areas fanned out in '
+             'parallel, ~26 min/experiment after the decode fix. Ran until the credits ran out. It '
+             'came back on 1 November as a benchmark - 151 s and $0.09 a run, faster and cheaper '
+             'than AWS - but capped at $30 a month, so it stays a backup.',
+        'k': 'superseded'},
+ 't11': {'t': 'loop resumes, locally',
+         'd': 'Fable 5.1 designs, Opus 5.5 implements, the M1 trains over three photographs. First '
+              'target: five experiments on the new ruler; they took 1-3 hours each, which is what '
+              'sent training to AWS two days later.',
+         'k': 'kept'}}
+EVOLUTION_TIPS = json.dumps({**json.loads(EVOLUTION_TIPS), **_EVO_TIPS_ADD})
+
 
 EVOLUTION_JS = r"""
 (function(){
@@ -5733,11 +6210,16 @@ def render_evolution(exps):
   "on. <b>Hover anything</b> for what happened and why.")}
 <div class="evo">
 <div class="evo-prose"><div class="evo-key">{key}</div></div>
-<p class="evo-scrollhint">scroll sideways &rarr; 20 July &ndash; 30 October, quiet stretches compressed</p>\n<div class="evo-figure">{evo_svg}</div>
-<div class="evo-prose"><p class="evo-read">The two long red lines are the story: for <b>ten of the
-project&rsquo;s twelve days</b> the evaluation was asking a question the model could
-not answer, and the score preferred guessing to learning. Every result measured
-against them had to be thrown away.</p></div>
+<p class="evo-scrollhint">scroll sideways &rarr; 20 July &ndash; 3 November, quiet stretches compressed</p>\n<div class="evo-figure">{evo_svg}</div>
+<div class="evo-prose"><p class="evo-read">The long red lines are the story.
+Each is a rule that ran as the mainline and measured the wrong thing: for ten
+of the first twelve days the evaluation asked a question the model could not
+answer and the score preferred guessing to learning; from July to September
+it tested the model on the very photograph it had memorised; and in this
+era a coverage floor and a size gate, both written for an older question,
+each vetoed the best model of the day. The loop only fixes what its ruler
+measures, so every one of these had to be found by the humans looking at the
+results, and every result measured against them re-measured.</p></div>
 </div>
 <div id="evo-tip"></div>
 <script type="application/json" id="evo-tips">{EVOLUTION_TIPS}</script>

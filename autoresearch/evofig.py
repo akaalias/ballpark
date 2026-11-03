@@ -49,7 +49,15 @@ DAY_W[90] = 928.0
 for _d in range(91, 122):
     DAY_W[_d] = 6.0
 DAY_W[122] = 520.0
-LAST_DAY = 122
+# 31 Oct - 3 Nov: the capture-holdout loop's busiest days, and 28 Aug (the
+# flight simulator) widened out of the compressed quiet (issue #23).
+DAY_W[59] = 360.0
+DAY_W[122] = 640.0
+DAY_W[123] = 560.0
+DAY_W[124] = 1040.0
+DAY_W[125] = 760.0
+DAY_W[126] = 640.0
+LAST_DAY = 126
 DAY_X = {21: 306.5}
 for _d in range(22, LAST_DAY + 1):
     DAY_X[_d] = DAY_X[_d - 1] + DAY_W[_d - 1]
@@ -73,8 +81,9 @@ VIEW_W, VIEW_H = int(TRUNK_X1 + 289), 608
 SPLIT_D = 31.38           # berlin-slim: the trunk forks here
 GAPS = [
     (24.0200, 30.7700, "six days of silence"),
-    (32.35, 89.80, "two months of silence &mdash; one commit, the rename to Ballpark"),
+    (32.35, 58.95, 'four weeks of silence'),
     (90.95, 121.85, "a month on hold &mdash; the laptop was needed"),
+    (60.05, 89.8, 'a month of quiet &mdash; the rename to Ballpark'),
 ]
 GAP = GAPS[0]             # kept for anything that still reads the old name
 
@@ -162,6 +171,44 @@ MERGES = [
 # category is real and the next side-branch belongs here; render_evolution
 # drops the legend swatch when it is empty.
 OPEN = []
+
+
+# --- 28 August - 3 November: the flight test and the capture-holdout era
+# (issue #23; compiled from git, issues, the experiment DB and session
+# transcripts). Appended, so every earlier mark keeps its tooltip id.
+TRUNK_NODES += [
+    (59.547, 'flight test: 91/100 arrive', 'below'),
+    (124.499, 'training moves to AWS', 'below'),
+    (124.773, '0.560 - borrowed eyes', 'below'),
+    (124.842, 'native scale: 0.293', 'above'),
+    (125.168, '0.078 - 93% usable', 'below'),
+    (125.572, 'NOT TESTED is not refuted', 'below'),
+    (126.527, 'six flight missions', 'below'),
+    (126.55, 'not merging yet', 'above'),
+]
+DEAD += [
+    (122.565, 125.486, 128, 'Cross-photograph consistency losses', 'three tries, none kept'),
+    (125.245, 125.402, 64, 'Continuous vantages (Prignitz&#39;s open move)', '0.103, reverted'),
+]
+SUPER += [
+    (20.73, 124.746, 416, '20% coverage floor', '→ one usable fix required'),
+    (20.73, 124.773, 544, '4 MiB fp32 size gate', '→ 32 MiB fp32, ~8 MiB int8'),
+    (122.47, 124.499, 384, 'Local M1 - 1-3 h per experiment', '→ AWS, one GPU machine per run'),
+    (122.47, 124.774, 512, 'Fable 5.1 designs', '→ Opus 5.5, after a bake-off'),
+]
+INCIDENTS += [
+    (123.585, 'figure agent overwrites figures'),
+    (124.52, 'laptop sleeps mid-loop'),
+    (125.083, 'models quarantined'),
+    (125.254, 'network drop'),
+    (125.494, 'no GPU in Frankfurt'),
+    (126.52, '150-min cap cuts exp 28'),
+]
+MERGES += [
+    (123.692, 124.499, 192, 'the code was the bottleneck, not the laptop'),
+    (124.531, 124.773, 64, 'pretrained features already cross photographs'),
+    (124.915, 125.572, 192, 'an untested idea is not a refuted one'),
+]
 
 
 def _f(v):
