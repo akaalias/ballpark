@@ -58,29 +58,40 @@ FP_CSS = """
   border:1px solid var(--rule-soft)}
 .fp-cam .cam-h{font:600 10.5px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 7px}
-.fp-cam .cam-out{margin:8px 0 0;font:13px/1.5 var(--serif)}
+/* three fixed lines (time, outcome, how far off) that never wrap, so the
+   panel keeps one height for the whole flight */
+.fp-cam .cam-out{margin:8px 0 0;font:13px/1.5 var(--serif);height:4.5em}
+.fp-cam .cam-out span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fp-cam .cam-out b.usable{color:var(--ink)}
 .fp-cam .cam-out b.abstain{color:var(--faint)}
 .fp-cam .cam-out b.false_fix{color:var(--accent)}
 .fp-cam .cam-sub{margin:2px 0 0;font:12.5px/1.5 var(--serif);color:var(--muted)}
 .fp-read{margin-top:12px;font:13px/1.7 var(--serif);color:var(--muted)}
 .fp-read b{color:var(--ink);font-variant-numeric:lining-nums tabular-nums}
-/* two rows under the map: what to replay (mission, flight), then how
-   (play, scrub, time, speed). One row overflowed once the mission picker
-   joined it, and the speed menu wrapped onto a line of its own. */
-.fp-picks{display:flex;gap:8px;align-items:center;margin:12px 0 0;flex-wrap:wrap}
-.fp-picks select,.fp-controls select{font:13px var(--serif);color:var(--ink);
+/* ONE row under the map: mission, flight, play, scrub, time, speed. The
+   menus size to their content; the scrubber takes what is left; on a
+   narrow screen the row wraps rather than overflowing. */
+.fp-controls select{font:13px var(--serif);color:var(--ink);
   background:var(--paper);border:1px solid var(--rule);height:28px;padding:0 6px;
   min-width:0;max-width:100%}
-.fp-controls{display:flex;gap:12px;align-items:center;margin:8px 0 0;
-  font:13px var(--serif);color:var(--muted)}
+.fp-controls{display:flex;gap:8px;align-items:center;margin:12px 0 0;
+  font:13px var(--serif);color:var(--muted);flex-wrap:wrap}
 .fp-controls button{font:600 12px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.07em;color:var(--paper);
   background:var(--ink);border:none;height:28px;padding:0 16px;cursor:pointer}
 .fp-controls button:hover{background:var(--accent)}
-.fp-controls input[type=range]{flex:1;accent-color:#8c2f1f}
-.fp-controls .t-read{font-variant-numeric:lining-nums tabular-nums;min-width:64px;text-align:right}
+.fp-controls input[type=range]{flex:1 1 120px;min-width:80px;accent-color:#8c2f1f}
+.fp-controls .t-read{font-variant-numeric:lining-nums tabular-nums;min-width:52px;text-align:right}
+/* the readout: a two-line heading that never wraps, then five fixed rows,
+   so its height never changes while the numbers do */
+.fp-read .rd-h{color:var(--ink);font-weight:600;line-height:1.45;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fp-read .lab-sub{font-weight:400;color:var(--muted)}
+.fp-read dl.rd{display:grid;grid-template-columns:1fr auto;gap:1px 8px;margin:8px 0 0;
+  font:12.5px/1.6 var(--serif)}
+.fp-read dl.rd dt{color:var(--muted);white-space:nowrap}
+.fp-read dl.rd dd{margin:0;text-align:right;color:var(--ink);font-weight:600;
+  font-variant-numeric:lining-nums tabular-nums;white-space:nowrap}
 .fp-note{max-width:780px;margin:14px auto 0;font:14.5px/1.7 var(--serif);color:#4a473e}
 .fp-note p{margin:0 0 10px}
 .fp-note b{color:var(--ink)}
@@ -624,10 +635,11 @@ def flight_section(rel, record_note, n=1):
     data = {
         "w": meta_w, "h": meta_h,
         "label": (f"{md[SHOW_KIND]['name']} &middot; flight {SHOW_ID}<br><span class='lab-sub'>"
-                  f"{row['lab'].split(' &middot; ', 1)[1]}</span>"),
+                  f"{'mission succeeded' if row['ok'] else 'mission failed'}</span>"),
         "flight": show,
         "show": f"{SHOW_KIND}:{SHOW_ID}",
-        "ab_label": f"showcase &middot; lands {showcase['declared_miss_m']:.1f} m out",
+        "ab_label": (f"A &rarr; B &middot; showcase<br><span class='lab-sub'>lands "
+                     f"{showcase['declared_miss_m']:.0f} m from target</span>"),
         "ab": {k: showcase[k] for k in
                ("start_px", "target_px", "direct_m", "flight_s", "wind",
                 "declared_miss_m", "fix_counts", "fixes", "track")},
@@ -659,11 +671,9 @@ def flight_section(rel, record_note, n=1):
 <canvas id="minicv" width="128" height="128" style="display:none"></canvas>
 <span class="mini-t" id="minit">&mdash;</span>
 </div>
-<div class="fp-picks">
+<div class="fp-controls">
 {mission_picker_html()}
 {flight_selector_html()}
-</div>
-<div class="fp-controls">
 <button id="play">Play</button>
 <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="flight time">
 <span class="t-read num" id="tread">0.0 s</span>
@@ -1021,7 +1031,7 @@ function initFlight(f,label){
   miniCv.style.display=hasCrops?'none':'';
   miniT.innerHTML='&mdash;';
   camsub.innerHTML=hasCrops?'128&thinsp;&times;&thinsp;128 px &middot; 1 m/px &middot; ~100 m AGL'
-    :'reconstructed view (2 m/px preview) &mdash; original frames are archived only for the showcase flight';
+    :'reconstructed view &middot; 2 m/px (frames saved only for the showcase)';
   if(!hasCrops&&!zoomImg.src)zoomImg.src=REL+'assets/sim/berlin-zoom.jpg';
   flightHooks.forEach(h=>h(F));
   render(0);
@@ -1038,14 +1048,15 @@ async function loadFlight(val){
     const id=val.split(':')[1], M=D.missions[kind];
     const f=await fetch(REL+'assets/sim/missions/'+kind+'/f'+id+'.json').then(r=>r.json());
     const row=M.rows.find(r=>String(r.id)===id);
-    const rest=row?row.lab.split(' &middot; ').slice(1).join(' &middot; '):'';
-    initFlight(f,M.name+' &middot; flight '+id+'<br><span class="lab-sub">'+rest+'</span>'+
-      (f.success?'':'<br><span style="color:'+ACCENT+'">mission failed</span>'));
+    initFlight(f,M.name+' &middot; flight '+id+'<br>'+(f.success
+      ?'<span class="lab-sub">mission succeeded</span>'
+      :'<span class="lab-sub" style="color:'+ACCENT+'">mission failed</span>'));
     startPlay();return;
   }
   const f=await fetch(REL+'assets/sim/flights/f'+val+'.json').then(r=>r.json());
   const miss=f.result==='arrived'?f.declared_miss_m:f.final_true_dist_m;
-  initFlight(f,'flight '+f.flight_id+' &middot; '+(f.result==='timeout'?'timed out':'declared arrival')+' '+fmt(miss)+' from target');
+  initFlight(f,'A &rarr; B &middot; flight '+f.flight_id+'<br><span class="lab-sub">'+
+    (f.result==='timeout'?'timed out, ':'lands ')+fmt(miss)+' from target</span>');
   startPlay();
 }
 function startPlay(){playing=true;lastTs=0;playBtn.textContent='Pause';requestAnimationFrame(tick);}
@@ -1144,16 +1155,19 @@ function render(t){
     if(!hasCrops&&fx.outcome!=='off_map')drawCam(fx);
     miniT.textContent=fx.t.toFixed(0)+' s · '+({usable:'usable',abstain:'abstained',false_fix:'false fix',off_map:'off map'}[fx.outcome]);
     miniT.style.color=fx.outcome==='false_fix'?ACCENT:(fx.outcome==='usable'?INK:MUTED);
-    const oCls=fx.outcome, oTxt={usable:'usable fix',abstain:'abstained — not confident',false_fix:'false fix — confidently wrong',off_map:'off the mapped box — no image'}[oCls];
-    camout.innerHTML=`t = ${fx.t.toFixed(0)} s · <b class="${oCls}">${oTxt}</b>`+
-      (fx.err_m!==undefined&&fx.outcome!=='abstain'?`<br><span style="color:${MUTED}">model's answer was ${fmt(fx.err_m)} from the truth</span>`:'');
-  } else { camout.innerHTML='&mdash; no fix yet'; }
+    const oCls=fx.outcome, oTxt={usable:'usable fix',abstain:'abstained',false_fix:'false fix',off_map:'off the map'}[oCls];
+    camout.innerHTML=`<span>t = ${fx.t.toFixed(0)} s</span><span><b class="${oCls}">${oTxt}</b></span>`+
+      `<span style="color:${MUTED}">${fx.err_m!==undefined&&fx.outcome!=='abstain'?'answer '+fmt(fx.err_m)+' off':'&nbsp;'}</span>`;
+  } else { camout.innerHTML='<span>&mdash; no fix yet</span><span>&nbsp;</span><span>&nbsp;</span>'; }
   const err=Math.hypot(p[1]-p[3],p[2]-p[4]);
   const dist=Math.hypot(F.target_px[0]-p[1],F.target_px[1]-p[2]);
-  read.innerHTML=`<span style="color:#111111;font-weight:600">${flightLabel}</span><br>`+
-    `estimate is <b>${fmt(err)}</b> from the truth<br>`+
-    `<b>${fmt(dist)}</b> ${{loiter:'to the orbit centre',return_home:'to home (end of mission)',survey:'to the end of the grid',spree:'to the end of the route',tour:'to the last spot'}[F.mission]||'to the target'} (true)<br>`+
-    `fixes so far: <b>${counts.usable}</b> usable · <b>${counts.abstain}</b> abstained · <b>${counts.false_fix}</b> false`;
+  const toWord={loiter:'to orbit centre',return_home:'to home',survey:'to end of grid',spree:'to end of route',tour:'to last spot'}[F.mission]||'to target';
+  read.innerHTML=`<div class="rd-h">${flightLabel}</div><dl class="rd">`+
+    `<dt>estimate off by</dt><dd>${fmt(err)}</dd>`+
+    `<dt>${toWord}</dt><dd>${fmt(dist)}</dd>`+
+    `<dt>usable fixes</dt><dd>${counts.usable}</dd>`+
+    `<dt>abstained</dt><dd>${counts.abstain}</dd>`+
+    `<dt>false fixes</dt><dd>${counts.false_fix}</dd></dl>`;
   scrub.value=Math.round(1000*cur/dur);
   tread.textContent=cur.toFixed(1)+' s';
   if(window.FP&&window.FP.onTick)window.FP.onTick(cur);
