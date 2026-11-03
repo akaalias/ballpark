@@ -317,3 +317,23 @@ runs/20261102_150521_experiment27/models/berlin.onnx
 Graceful stop requested — 27/100 experiments recorded so far.
 Loop finished. Best mission score: 0.077671 — see gallery/index.html
 Working tree dirty — committing pending changes as a pre-loop checkpoint.
+Type 'exit' + Enter to stop gracefully after the current experiment
+(Ctrl-C aborts the in-flight experiment immediately).
+=== Experiment 28 (27/100 recorded)  run=20261103_084926_experiment28  parent=dab31721f36e6f6950fa5291d8238a774f51c11e ===
+agents finished (design: claude-opus-5-5 198s, impl: claude-opus-5-5 55s)
+Working tree dirty — committing pending changes as a pre-loop checkpoint.
+Type 'exit' + Enter to stop gracefully after the current experiment
+(Ctrl-C aborts the in-flight experiment immediately).
+=== Experiment 28 (27/100 recorded)  run=20261103_090215_experiment28  parent=520f09393fd968659301eb92b699afe6d23f2a8c ===
+--- train berlin:
+[aws] machine i-067a8ed339edda5be terminated after 154.2 min (on-demand, ~$2.58)
+[aws] FAILED (failed)
+samples -> runs/20261103_084926_experiment28/samples
+REVERTED: mission score 1000000000.0 (best remains 0.077671)
+28
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/index.html (28 experiments)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/inference-paths.html (87 figures)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-lineage.html (111 nodes)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/research-evolution.html (graph: 12 trunk nodes, 6 abandoned, 7 superseded, 0 open)
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/index.html
+wrote /Users/alexisrondeau/Workshop/low-light-geolocalization-autoresearch/gallery/lab-notebook.html
