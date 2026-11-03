@@ -643,7 +643,7 @@ def flight_section(rel, record_note, n=1):
       f"Along the Spree over a photograph the model never saw — {st['km']:.1f} km in {st['dur_min']:.0f} minutes, {len(st['ff'])} false fixes at {len(st['groups'])} places, finished {st['end_m']:.0f} m from the end.")}
 <div class="fp-legend">
 <span><i class="k-true"></i>true path</span>
-<span><i class="k-est"></i>believed path &mdash; drawn only while the estimate is within 300 m of the truth</span>
+<span><i class="k-est"></i>believed path</span>
 <span><i class="k-usable"></i>usable fix</span>
 <span><i class="k-abstain"></i>abstention</span>
 <span><i class="k-false"></i>false fix</span>
