@@ -234,6 +234,13 @@ def build_flight_assets():
 
 
 MISSIONS_OUT = REPO_ROOT / "sim" / "out" / "missions"
+# The replay opens on this flight (Alexis, 2026-11-03): Spree flight 2 of 40,
+# east to west, a success whose five false fixes sit exactly where the
+# river's false fixes cluster. Its camera frames were saved by re-flying it
+# (sim/missions.py --save-crops-for 2, bit-identical to the 40-flight run).
+SHOW_KIND, SHOW_ID = "spree", 2
+SHOW_CROPS_SRC = REPO_ROOT / "sim" / "out" / "mission_crops" / f"{SHOW_KIND}_f{SHOW_ID}"
+SHOW_CROPS_REL = f"assets/sim/missions/{SHOW_KIND}/crops_f{SHOW_ID}/"
 MISSION_FLIGHTS_SRC = REPO_ROOT / "sim" / "out" / "mission_flights"
 # (key, picker name, what it asks) — order of the picker and the table
 MISSION_KINDS = [
@@ -280,6 +287,19 @@ def build_mission_assets():
                      "final_true_dist_m", "fix_counts", "fixes",
                      "waypoints_px", "waypoints", "loiter", "cold_start",
                      "localized_s", "xtrack") if k in f}
+            if kind == SHOW_KIND and f["flight_id"] == SHOW_ID and any("crop" in x for x in f["fixes"]):
+                cdir = REPO_ROOT / SHOW_CROPS_REL
+                cdir.mkdir(parents=True, exist_ok=True)
+                for x in slim["fixes"]:
+                    if "crop" in x:
+                        jpg = Path(x["crop"]).stem + ".jpg"
+                        src = SHOW_CROPS_SRC / x["crop"]
+                        if src.exists():
+                            Image.open(src).convert("RGB").save(cdir / jpg, quality=82, optimize=True)
+                        elif not (cdir / jpg).exists():
+                            raise SystemExit(f"showcase crop {src} and committed {cdir / jpg} both missing")
+                        x["crop"] = jpg
+                slim["crop_base"] = SHOW_CROPS_REL
             slim["track"] = f["track"][::2]          # ~1 s, by index (see build_flight_assets)
             if slim["track"][-1] is not f["track"][-1]:
                 slim["track"].append(f["track"][-1])
@@ -330,6 +350,66 @@ def mission_data():
     return out
 
 
+def _route_km(route, p):
+    """Distance along a polyline (px == m) of the point nearest p, in km."""
+    route = np.asarray(route, float)
+    seg = np.diff(route, axis=0)
+    cum = np.r_[0, np.cumsum(np.linalg.norm(seg, axis=1))]
+    best = (1e18, 0.0)
+    for i, ab in enumerate(seg):
+        a = route[i]
+        t = float(np.clip(np.dot(np.asarray(p) - a, ab) / ab.dot(ab), 0, 1))
+        dd = float(np.linalg.norm(np.asarray(p) - (a + t * ab)))
+        if dd < best[0]:
+            best = (dd, cum[i] + t * float(np.linalg.norm(ab)))
+    return best[1] / 1000
+
+
+def show_flight():
+    """The default replay flight, read from its committed slim record."""
+    return json.loads((ASSETS / "missions" / SHOW_KIND / f"f{SHOW_ID}.json").read_text())
+
+
+def show_story(f):
+    """Plain-language facts of the showcase flight, all from its record:
+    where on the river each false fix happened, how far the belief strayed,
+    how it finished. Grouped by place so the prose can say 'three at the
+    Spreebogen' rather than list timestamps."""
+    route = [f["start_px"]] + f["waypoints_px"]
+    # km counts from the EAST end whatever the direction flown, so the place
+    # names match the section-4 strip
+    east = route if route[0][0] > route[-1][0] else route[::-1]
+    ff = [x for x in f["fixes"] if x["outcome"] == "false_fix"]
+    groups = []
+    for x in ff:
+        km = _route_km(east, x["true"])
+        place = SPREE_PLACES.get(int(km), f"km {km:.1f}")
+        if groups and groups[-1]["place"] == place:
+            groups[-1]["fx"].append(x)
+        else:
+            groups.append({"place": place, "fx": [x]})
+    T = f["track"]
+    est_max = max(((p[1] - p[3]) ** 2 + (p[2] - p[4]) ** 2) ** 0.5 for p in T)
+    return {"ff": ff, "groups": groups, "est_max": est_max,
+            "km": sum(np.linalg.norm(np.subtract(route[i + 1], route[i]))
+                      for i in range(len(route) - 1)) / 1000,
+            "dur_min": f["flight_s"] / 60, "end_m": f["final_true_dist_m"],
+            "within": f["xtrack"]["within_100m"], "fc": f["fix_counts"]}
+
+
+def _groups_html(st):
+    parts = []
+    for g in st["groups"]:
+        n = len(g["fx"])
+        if n == 1:
+            parts.append(f"at {g['place']} it takes <b>one false fix</b>")
+        else:
+            parts.append(f"at {g['place']} it takes <b>{n} false fixes</b> in "
+                         f"{g['fx'][-1]['t'] - g['fx'][0]['t']:.0f}&nbsp;s")
+    txt = "; ".join(parts)
+    return txt[0].upper() + txt[1:]
+
+
 def spree_profile(fl):
     """False-fix share per kilometre of river, measured along the route."""
     route = np.array([fl[0]["start_px"]] + fl[0]["waypoints_px"], float)
@@ -356,7 +436,7 @@ def spree_profile(fl):
     return {"km": round(cum[-1] / 1000, 1), "tot": tot.tolist(), "ff": ff.tolist()}
 
 
-SPREE_PLACES = {3: "the Spreebogen, beside the Chancellery", 6: "the Charlottenburg bend"}
+SPREE_PLACES = {3: "the Spreebogen beside the Chancellery", 6: "the Charlottenburg bend"}
 
 
 def spree_svg(prof):
@@ -539,40 +619,51 @@ def flight_section(rel, record_note, n=1):
     for fx in showcase["fixes"]:
         if "crop" in fx:
             fx["crop"] = Path(fx["crop"]).stem + ".jpg"
-    first_crop = next((fx["crop"] for fx in showcase["fixes"] if "crop" in fx), "")
+    show = show_flight()
+    st = show_story(show)
+    md = mission_data()
+    row = next(r for r in md[SHOW_KIND]["rows"] if r["id"] == SHOW_ID)
+    first_crop = next((fx["crop"] for fx in show["fixes"] if "crop" in fx), "")
     meta_w, meta_h = 6939, 6828  # berlin raster (data/berlin/meta.json)
     data = {
         "w": meta_w, "h": meta_h,
-        "label": f"showcase &middot; lands {showcase['declared_miss_m']:.1f} m out",
-        "flight": {k: showcase[k] for k in
-                   ("start_px", "target_px", "direct_m", "flight_s", "wind",
-                    "declared_miss_m", "fix_counts", "fixes", "track")},
+        "label": f"{md[SHOW_KIND]['name']} &middot; {row['lab']}",
+        "flight": show,
+        "show": f"{SHOW_KIND}:{SHOW_ID}",
+        "ab_label": f"showcase &middot; lands {showcase['declared_miss_m']:.1f} m out",
+        "ab": {k: showcase[k] for k in
+               ("start_px", "target_px", "direct_m", "flight_s", "wind",
+                "declared_miss_m", "fix_counts", "fixes", "track")},
         "missions": {k: {"name": v["name"], "example": v["example"],
-                         "rows": v["rows"]} for k, v in mission_data().items()},
+                         "rows": v["rows"]} for k, v in md.items()},
     }
     return f"""
 {rsec(n, "One flight, replayed",
-      "Corner to corner over a photograph the model never saw — 9 km in ten minutes, two false fixes survived, arrival at 40 m.")}
+      f"Along the Spree over a photograph the model never saw — {st['km']:.1f} km in {st['dur_min']:.0f} minutes, {len(st['ff'])} false fixes at {len(st['groups'])} places, finished {st['end_m']:.0f} m from the end.")}
 <div class="fp-note">
-<p>North-west corner to south-east corner, 9 km, over Berlin&rsquo;s
+<p>The river through the middle of Berlin, east to west, {st['km']:.1f}&nbsp;km
+from the Mühlendamm to the Charlottenburg bend, over Berlin&rsquo;s
 <b>2024 aerial survey</b>: a photograph the model never saw in training,
-taken in a different year and season, with different shadows, cars and
-construction. At <b>t&thinsp;=&thinsp;97&thinsp;s</b> a
-<b style="color:var(--accent)">false fix</b> &mdash; barely confident,
-<b>2.3 km wrong</b> (the red line points to its claim, marked
-<span style="color:var(--accent)">&times;</span>) &mdash; pulls the
-navigator&rsquo;s belief away. The aircraft never flies to the claimed spot:
-only its <i>estimate</i> jumps there, so the dashed believed path breaks
-off and rejoins once usable fixes haul the belief back within 300 m of the
-truth. A second false fix, 519 m out on the approach, barely moves a fresh
-estimate. 85 usable fixes, 18 honest abstentions, and the flight lands
-<b>40 m</b> from the target.</p>
-<p style="font-size:13px;color:var(--muted)">Seed 6, the same route and wind
-as the previous showcase, so the two models fly the identical test.
-Disclosed: of six seeds on this route, three land within 100 m (40, 60 and
-62 m), one lands 464 m out, and two overshoot the corner out of the mapped
-box &mdash; beyond the edge there is no imagery and no way back.
-{record_note}</p></div>
+taken in a different year and season, with different shadows, boats and
+construction. The aircraft has to <i>follow</i> the river, not just reach
+its end, and water and embankment look much the same for kilometres.
+{_groups_html(st)}, each
+{min(x['err_m'] for x in st['ff']):.0f}&ndash;{max(x['err_m'] for x in st['ff']):.0f}&nbsp;m
+wrong (red lines point to the claims, marked
+<span style="color:var(--accent)">&times;</span>). These are the places on
+the river where the model is most often confidently wrong. Usable fixes on
+either side keep the belief within {st['est_max']:.0f}&nbsp;m of the truth, so
+the aircraft stays over the river: {100 * st['within']:.0f}% of the route
+within 100&nbsp;m. {st['fc']['usable']} usable fixes, {st['fc']['abstain']}
+abstentions, and it finishes <b>{st['end_m']:.0f}&nbsp;m</b> from the end of
+the route.</p>
+<p style="font-size:13px;color:var(--muted)">Spree flight {SHOW_ID} of
+{md[SHOW_KIND]['n']} (seed 1), chosen because its false fixes fall where the
+river&rsquo;s false fixes cluster. Disclosed: only
+{md[SHOW_KIND]['success']:.0%} of the {md[SHOW_KIND]['n']} river flights stay
+within 100&nbsp;m of the river for 95% of the route, and every one takes at
+least one false fix. The first menu switches mission; the corner-to-corner
+A&nbsp;&rarr;&nbsp;B showcase is under A&nbsp;&rarr;&nbsp;B. {record_note}</p></div>
 
 <div class="fp-legend">
 <span><i class="k-true"></i>true path</span>
@@ -592,7 +683,7 @@ box &mdash; beyond the edge there is no imagery and no way back.
 <g id="mapg"></g>
 </svg>
 <div class="fp-cam-mini" id="cammini">
-<img id="miniimg" src="{rel}assets/sim/crops/{first_crop}" alt="camera crop at the latest fix" width="128" height="128">
+<img id="miniimg" src="{rel}{SHOW_CROPS_REL}{first_crop}" alt="camera crop at the latest fix" width="128" height="128">
 <canvas id="minicv" width="128" height="128" style="display:none"></canvas>
 <span class="mini-t" id="minit">&mdash;</span>
 </div>
@@ -610,7 +701,7 @@ box &mdash; beyond the edge there is no imagery and no way back.
 <div class="fp-side">
 <div class="fp-cam">
 <p class="cam-h">Bottom camera &mdash; what the model saw</p>
-<img id="cam" src="{rel}assets/sim/crops/{first_crop}" alt="camera crop at the latest fix" width="128" height="128">
+<img id="cam" src="{rel}{SHOW_CROPS_REL}{first_crop}" alt="camera crop at the latest fix" width="128" height="128">
 <canvas id="camcv" width="128" height="128" style="display:none"></canvas>
 <p class="cam-out" id="camout">&mdash;</p>
 <p class="cam-sub" id="camsub">128&thinsp;&times;&thinsp;128 px &middot; 1 m/px &middot; ~100 m AGL</p>
@@ -634,6 +725,7 @@ def main():
     build_mission_assets()
 
     rows = mc_compact(mc)
+    sst = show_story(show_flight())
     s = mc["summary"]
     n_within = s["n_arrived_within_100m"]
     failures = sorted((r for r in rows if not r["within"]), key=lambda r: r["miss"])
@@ -705,7 +797,7 @@ frozen scorer&rsquo;s own thresholds.</p>
 <tr><td>worst flight</td><td class="num">{PREVIOUS['worst']:,} m</td><td class="num">{s['declared_miss_worst_m']:,.0f} m</td></tr>
 <tr><td>false fixes, all 100 flights</td><td class="num">{PREVIOUS['ff']} <span class="sub">in {PREVIOUS['ff_flights']} flights</span></td><td class="num"><b>{ff_total}</b> <span class="sub">in {s['n_flights_with_false_fix']} flights</span></td></tr>
 <tr><td>fixes lost off the mapped box</td><td class="num">{PREVIOUS['off_map']}</td><td class="num">{s['total_fixes']['off_map']}</td></tr>
-<tr><td>showcase: landed / false fixes / worst belief error</td><td class="num">{PREVIOUS['showcase_miss']} m / {PREVIOUS['showcase_ff']} / {PREVIOUS['showcase_peak'] / 1000:.1f} km</td><td class="num">{showcase['declared_miss_m']:.0f} m / {showcase['fix_counts']['false_fix']} / {peak_km:.1f} km</td></tr>
+<tr><td>corner-to-corner showcase: landed / false fixes / worst belief error</td><td class="num">{PREVIOUS['showcase_miss']} m / {PREVIOUS['showcase_ff']} / {PREVIOUS['showcase_peak'] / 1000:.1f} km</td><td class="num">{showcase['declared_miss_m']:.0f} m / {showcase['fix_counts']['false_fix']} / {peak_km:.1f} km</td></tr>
 </tbody></table>
 <p class="hero-sub">Same 100 routes, seeds and wind. The previous champion
 (berlin-slim experiment 5, 0.040) was flown over the very photograph it had
@@ -721,13 +813,18 @@ lost off the map, and it makes under a third of the false fixes.</p>
       "How far the navigator's belief is from the aircraft's true position, second by second.")}
 <div class="fp-note"><p>Between fixes the error grows &mdash; wind the
 navigator cannot see. Each <b>usable fix</b> snaps it back down. The
-<b style="color:var(--accent)">false fix</b> at t&thinsp;=&thinsp;97 s is
-the spike: one confident wrong answer worth over 2 km of injected error
-&mdash; the reason the mission score prices false fixes so high. The second
-one, on approach, barely registers: a fresh estimate gives a wrong
-answer little weight. Square-root vertical scale, so the 20&ndash;60 m
-cruise detail and the kilometre spike fit one honest axis; the dashed line
-is the 100 m usable radius.</p></div>
+spikes are the <b style="color:var(--accent)">false fixes</b>:
+{"; ".join(f"t&thinsp;=&thinsp;{g['fx'][0]['t']:.0f}{('&ndash;' + format(g['fx'][-1]['t'], '.0f')) if len(g['fx']) > 1 else ''}&thinsp;s at {g['place']}" for g in sst['groups'])}.
+The navigator moves most of the way toward every confident answer, so a
+false fix drags the belief in proportion to how wrong it is. The
+river&rsquo;s are {min(x['err_m'] for x in sst['ff']):.0f}&ndash;{max(x['err_m'] for x in sst['ff']):.0f}&nbsp;m
+off, so the belief never strays more than {sst['est_max']:.0f}&nbsp;m, and the
+next usable fix pulls it back. On the corner-to-corner A&nbsp;&rarr;&nbsp;B
+showcase (first menu) a single barely-confident answer 2.3&nbsp;km off
+pulled the belief {peak_km:.1f}&nbsp;km away: that is why the mission score
+prices false fixes so high. Square-root vertical scale, so the cruise
+detail and the spikes fit one axis; the dashed line is the 100&nbsp;m usable
+radius. The chart follows whichever flight the replay is showing.</p></div>
 <div class="fp-chart" id="chartbox"></div>
 
 {rsec(3, "A hundred flights",
@@ -838,7 +935,7 @@ const flightHooks=[];
 // S = map units per screen unit relative to the whole-box view: mission
 // replays zoom the map to their own area, and every marker scales by S so it
 // keeps its on-screen size.
-let S=1;
+let S=1, VB=null;   // VB = the zoomed view [x, y, w, h], null for the whole box
 const lab=(x,y,t,size,italic)=>{const e=el('text',{x:x,y:y,'font-size':size,
   'font-family':'Palatino,Georgia,serif','font-style':italic?'italic':'normal',
   'font-weight':italic?'400':'600',fill:INK,'text-anchor':'middle',
@@ -850,6 +947,13 @@ const endpoint=(x,y,color,word,dx,dy)=>{
   el('animate',{attributeName:'opacity',values:'.75;0',dur:'2.6s',repeatCount:'indefinite'},pulse);
   el('circle',{cx:x,cy:y,r:150*S,fill:'none',stroke:color,'stroke-width':30*S},g);
   el('circle',{cx:x,cy:y,r:64*S,fill:color,stroke:PAPER,'stroke-width':26*S},g);
+  if(VB){   // in a zoomed view, keep the word on the visible side of its marker
+    const half=(word.length*70+60)*S;
+    if(x+dx*S+half>VB[0]+VB[2]) dx=-Math.abs(dx);
+    if(x+dx*S-half<VB[0]) dx=Math.abs(dx);
+    if(y+dy*S-200*S<VB[1]) dy=Math.abs(dy)+160;
+    if(y+dy*S+40*S>VB[1]+VB[3]) dy=-Math.abs(dy);
+  }
   lab(x+dx*S,y+dy*S,word,200*S,false);
 };
 
@@ -869,8 +973,8 @@ function initFlight(f,label){
      // as wide as needed (>= 2.4 km), between half as tall and square
      let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.5));
      const vx=Math.max(0,Math.min(D.w-vw,(x0+x1-vw)/2)),vy=Math.max(0,Math.min(D.h-vh,(y0+y1-vh)/2));
-     svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;
-   } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;}}
+     svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;VB=[vx,vy,vw,vh];
+   } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;VB=null;}}
   const MK=F.mission||'a_to_b';
   if(MK!=='loiter')el('circle',{cx:F.target_px[0],cy:F.target_px[1],r:100,fill:'none',stroke:INK,'stroke-dasharray':'4 4','vector-effect':'non-scaling-stroke','stroke-width':1.3},g);
   // the mission's plan, faint and under everything: route, orbit, believed start
@@ -930,7 +1034,8 @@ async function loadFlight(val){
   const isM=val.includes(':'), kind=isM?val.split(':')[0]:'a_to_b';
   setMission(kind);
   if(flightSel)flightSel.value=val;
-  if(val==='showcase'){initFlight(D.flight,D.label);startPlay();return;}
+  if(val==='showcase'){initFlight(D.ab,D.ab_label);startPlay();return;}
+  if(val===D.show){initFlight(D.flight,D.label);startPlay();return;}
   if(isM){
     const id=val.split(':')[1], M=D.missions[kind];
     const f=await fetch(REL+'assets/sim/missions/'+kind+'/f'+id+'.json').then(r=>r.json());
@@ -1036,7 +1141,7 @@ function render(t){
   F.fixes.forEach((fx,j)=>{if(fx.t<=cur){fixMark(fx,j);last=[fx,j];if(counts[fx.outcome]!==undefined)counts[fx.outcome]++;}});
   if(last){
     const [fx,j]=last;
-    if(fx.crop){cam.src=REL+'assets/sim/crops/'+fx.crop;miniImg.src=cam.src;}
+    if(fx.crop){cam.src=REL+(F.crop_base||'assets/sim/crops/')+fx.crop;miniImg.src=cam.src;}
     if(!hasCrops&&fx.outcome!=='off_map')drawCam(fx);
     miniT.textContent=fx.t.toFixed(0)+' s · '+({usable:'usable',abstain:'abstained',false_fix:'false fix',off_map:'off map'}[fx.outcome]);
     miniT.style.color=fx.outcome==='false_fix'?ACCENT:(fx.outcome==='usable'?INK:MUTED);
@@ -1081,6 +1186,7 @@ function hideTip(){tipEl.style.display='none';}
 window.FP={el,fmt,tip,hideTip,seek,loadFlight,flightHooks,flight:()=>F,onTick:null,
            INK,OCHRE,ACCENT,FAINT,PAPER,MUTED,RULE};
 initFlight(D.flight,D.label);
+setMission(D.show.split(':')[0]); if(flightSel)flightSel.value=D.show;
 // autostart the replay the first time the map comes into view
 const io=new IntersectionObserver(es=>{
   if(es.some(e=>e.isIntersecting)&&!playing&&cur===0){

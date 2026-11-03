@@ -23,3 +23,5 @@ state/quarantine/
 sim/out/mc_flights/
 # same for the mission flights (sim/missions.py --flight-dir); slimmed copies in assets/sim/missions/.
 sim/out/mission_flights/
+# the Spree showcase flight's camera frames (sim/missions.py --save-crops-for); slimmed copies in assets/sim/missions/spree/crops_f2/.
+sim/out/mission_crops/

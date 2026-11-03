@@ -193,9 +193,13 @@ def run(kind, args, meta, img, sess):
     flights = []
     for i in range(args.flights):
         start, wps, kw = build(kind, meta, mrng, i)
+        crops = None
+        if args.save_crops_for is not None and i == args.save_crops_for:
+            crops = args.out_dir / f"{kind}_f{i}_crops"   # the page's showcase frames
+            crops.mkdir(parents=True, exist_ok=True)
         f = fly_mission(sess, img, meta, [float(x) for x in start],
                         [[float(x) for x in w] for w in wps], frng,
-                        vision=not args.no_vision, **kw)
+                        vision=not args.no_vision, save_crops_dir=crops, **kw)
         f["flight_id"] = i
         f["success"] = success(kind, f)
         f["mission"] = kind
@@ -232,6 +236,9 @@ def main():
     ap.add_argument("--no-vision", action="store_true")
     ap.add_argument("--keep-tracks", type=int, default=3)
     ap.add_argument("--out-dir", type=Path, default=Path("sim/out/missions"))
+    ap.add_argument("--save-crops-for", type=int,
+                    help="save the camera frames of this one flight id (the page's "
+                         "Spree showcase is spree flight 2)")
     ap.add_argument("--flight-dir", type=Path,
                     help="also write each flight's FULL record as <dir>/<mission>/f<i>.json "
                          "(the flight-path page slims these into assets/sim/missions/)")
