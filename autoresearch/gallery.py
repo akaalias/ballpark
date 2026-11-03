@@ -4502,7 +4502,8 @@ f" The shaded row is where the trunk stopped being learned from scratch: from ex
 <title>Ballpark &mdash; &ldquo;Not all who wander are lost&rdquo;: Can a UAV learn a city by heart &mdash; no GPS, no map on board, just a $4 flight computer?</title>
 <style>{CSS}
 {FP_CSS}
-table.ov-steps{{margin:14px auto 0;border-collapse:collapse;font:14px/1.5 var(--serif)}}
+table.ov-steps{{display:table;margin:14px auto 0;border-collapse:collapse;font:14px/1.5 var(--serif)}}
+table.ov-steps thead{{display:table-header-group}} table.ov-steps tbody{{display:table-row-group}}
 table.ov-steps th{{font:600 10.5px var(--serif);font-feature-settings:"smcp" 1;text-transform:uppercase;
   letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--rule);padding:4px 12px;text-align:left}}
 table.ov-steps td{{border-bottom:1px solid var(--rule-soft);padding:4px 12px}}
