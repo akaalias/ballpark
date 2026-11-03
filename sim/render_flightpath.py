@@ -65,10 +65,16 @@ FP_CSS = """
 .fp-cam .cam-sub{margin:2px 0 0;font:12.5px/1.5 var(--serif);color:var(--muted)}
 .fp-read{margin-top:12px;font:13px/1.7 var(--serif);color:var(--muted)}
 .fp-read b{color:var(--ink);font-variant-numeric:lining-nums tabular-nums}
-.fp-controls{display:flex;gap:12px;align-items:center;margin:12px 0 0;
-  font:13px var(--serif);color:var(--muted);flex-wrap:wrap}
-.fp-controls #flightsel{max-width:40%}
-.fp-controls #missionsel{max-width:24%}
+/* two rows under the map: what to replay (mission, flight), then how
+   (play, scrub, time, speed). One row overflowed once the mission picker
+   joined it, and the speed menu wrapped onto a line of its own. */
+.fp-picks{display:flex;gap:10px;align-items:center;margin:12px 0 0}
+.fp-picks select{font:13px var(--serif);color:var(--ink);background:var(--paper);
+  border:1px solid var(--rule);padding:3px 6px;min-width:0}
+.fp-picks #missionsel{flex:0 0 auto}
+.fp-picks #flightsel{flex:1 1 auto;max-width:100%}
+.fp-controls{display:flex;gap:12px;align-items:center;margin:8px 0 0;
+  font:13px var(--serif);color:var(--muted)}
 .fp-controls button{font:600 12px var(--serif);font-feature-settings:"smcp" 1;
   text-transform:uppercase;letter-spacing:.07em;color:var(--paper);
   background:var(--ink);border:none;padding:7px 16px;cursor:pointer}
@@ -76,7 +82,8 @@ FP_CSS = """
 .fp-controls input[type=range]{flex:1;accent-color:#8c2f1f}
 .fp-controls select{font:13px var(--serif);color:var(--ink);background:var(--paper);
   border:1px solid var(--rule);padding:3px 6px}
-.fp-controls .t-read{font-variant-numeric:lining-nums tabular-nums;min-width:88px;text-align:right}
+.fp-controls .t-read{font-variant-numeric:lining-nums tabular-nums;min-width:64px;text-align:right}
+.fp-read .lab-sub{font-weight:400;color:var(--muted)}
 .fp-note{max-width:780px;margin:14px auto 0;font:14.5px/1.7 var(--serif);color:#4a473e}
 .fp-note p{margin:0 0 10px}
 .fp-note b{color:var(--ink)}
@@ -628,7 +635,8 @@ def flight_section(rel, record_note, n=1):
     meta_w, meta_h = 6939, 6828  # berlin raster (data/berlin/meta.json)
     data = {
         "w": meta_w, "h": meta_h,
-        "label": f"{md[SHOW_KIND]['name']} &middot; {row['lab']}",
+        "label": (f"{md[SHOW_KIND]['name']} &middot; flight {SHOW_ID}<br><span class='lab-sub'>"
+                  f"{row['lab'].split(' &middot; ', 1)[1]}</span>"),
         "flight": show,
         "show": f"{SHOW_KIND}:{SHOW_ID}",
         "ab_label": f"showcase &middot; lands {showcase['declared_miss_m']:.1f} m out",
@@ -663,9 +671,11 @@ def flight_section(rel, record_note, n=1):
 <canvas id="minicv" width="128" height="128" style="display:none"></canvas>
 <span class="mini-t" id="minit">&mdash;</span>
 </div>
-<div class="fp-controls">
+<div class="fp-picks">
 {mission_picker_html()}
 {flight_selector_html()}
+</div>
+<div class="fp-controls">
 <button id="play">Play</button>
 <input id="scrub" type="range" min="0" max="1000" value="0" aria-label="flight time">
 <span class="t-read num" id="tread">0.0 s</span>
@@ -970,8 +980,8 @@ function initFlight(f,label){
      if(F.loiter){const [cx,cy]=F.loiter.center,R=F.loiter.radius_m+100;add([cx-R,cy-R]);add([cx+R,cy+R]);}
      if(F.cold_start)add([D.w/2,D.h/2]);
      const pad=450,x0=Math.min(...xs)-pad,x1=Math.max(...xs)+pad,y0=Math.min(...ys)-pad,y1=Math.max(...ys)+pad;
-     // as wide as needed (>= 2.4 km), between half as tall and square
-     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.5));
+     // as wide as needed (>= 2.4 km), between 0.62 as tall (so the side panel fits beside it) and square
+     let vw=Math.min(D.w,Math.max(2400,x1-x0,y1-y0)), vh=Math.min(D.h,Math.max(y1-y0,vw*0.62));
      const vx=Math.max(0,Math.min(D.w-vw,(x0+x1-vw)/2)),vy=Math.max(0,Math.min(D.h-vh,(y0+y1-vh)/2));
      svg.setAttribute('viewBox',`${vx} ${vy} ${vw} ${vh}`);S=vw/D.w;VB=[vx,vy,vw,vh];
    } else {svg.setAttribute('viewBox',`0 0 ${D.w} ${D.h}`);S=1;VB=null;}}
@@ -1040,8 +1050,9 @@ async function loadFlight(val){
     const id=val.split(':')[1], M=D.missions[kind];
     const f=await fetch(REL+'assets/sim/missions/'+kind+'/f'+id+'.json').then(r=>r.json());
     const row=M.rows.find(r=>String(r.id)===id);
-    initFlight(f,M.name+' &middot; '+(row?row.lab:'flight '+id)+
-      (f.success?'':' &middot; <span style="color:'+ACCENT+'">mission failed</span>'));
+    const rest=row?row.lab.split(' &middot; ').slice(1).join(' &middot; '):'';
+    initFlight(f,M.name+' &middot; flight '+id+'<br><span class="lab-sub">'+rest+'</span>'+
+      (f.success?'':'<br><span style="color:'+ACCENT+'">mission failed</span>'));
     startPlay();return;
   }
   const f=await fetch(REL+'assets/sim/flights/f'+val+'.json').then(r=>r.json());
