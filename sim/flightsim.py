@@ -77,6 +77,7 @@ EST_VEL_SIGMA = 5.0             # m/s assumed unmodeled velocity error (drift gr
 EST_BASE_SIGMA = 10.0           # m floor on estimate uncertainty
 FIX_SIGMA = 30.0                # m assumed fix measurement noise (~champion median 27 m)
 ARRIVE_RADIUS = 30.0            # m estimated distance at which arrival is declared
+L1_LOOKAHEAD = 80.0             # m, line-following lookahead on tracked legs (fly_mission)
 
 MARGIN_PX = WINDOW_PX // 2 + 1  # extract_crop needs this much raster around the pose
 TRACK_EVERY = 0.5               # s between recorded track points
@@ -94,9 +95,51 @@ def wrap180(a: float) -> float:
 
 def simulate_flight(sess, img, meta, start_px, target_px, rng, *,
                     vision=True, save_crops_dir=None):
-    """One flight. Coordinates are raster pixels; 1 px = gsd_m meters (1.0)."""
+    """One A->B flight (the original showcase mission): a single waypoint."""
+    return fly_mission(sess, img, meta, start_px, [target_px], rng,
+                       vision=vision, save_crops_dir=save_crops_dir)
+
+
+def _seg_dist(p, a, b):
+    """Distance from point p to segment a-b (all in px)."""
+    a, b, p = np.asarray(a, float), np.asarray(b, float), np.asarray(p, float)
+    ab = b - a
+    t = float(np.clip(np.dot(p - a, ab) / max(np.dot(ab, ab), 1e-9), 0.0, 1.0))
+    return float(np.linalg.norm(p - (a + t * ab)))
+
+
+def fly_mission(sess, img, meta, start_px, waypoints, rng, *,
+                vision=True, save_crops_dir=None, loiter=None,
+                cold_start=False, track_legs=(), xtrack_trim_m=0.0):
+    """One mission. Coordinates are raster pixels; 1 px = gsd_m meters (1.0).
+
+    waypoints   visited in order. An intermediate waypoint counts as reached
+                when the ESTIMATE is within ARRIVE_RADIUS or has passed the
+                line through the waypoint perpendicular to the leg (ArduPlane's
+                rule; a fixed-wing with a 37 m turn radius can otherwise orbit
+                a point it overshot forever). The final waypoint needs the
+                radius, as in the original A->B mission, and gets the
+                approach fix schedule.
+    loiter      {"center": [x, y], "radius_m": R, "duration_s": T}: after the
+                waypoints, fly to the centre and orbit it clockwise for T s
+                (cruise fix schedule throughout). Ends "completed".
+    cold_start  the navigator does not know where it starts: its belief is
+                the centre of the box with unbounded uncertainty, so the first
+                confident fix (right or wrong) is taken almost whole. Until
+                that first fix it circles in place rather than navigate on
+                a guess.
+    track_legs  indices i of legs (waypoint i-1 -> waypoint i; leg 0 starts
+                at start_px) on which the TRUE cross-track distance to the
+                planned line is recorded (survey lines, corridor). On these
+                legs guidance follows the LINE (L1-style lookahead) instead
+                of pursuing the end point, as a real autopilot would.
+    xtrack_trim_m  ignore cross-track over the first/last this-many metres
+                of each tracked leg (survey run-in/run-out, where the
+                aircraft is still turning onto the line).
+    """
     gsd = meta["gsd_m"]
     width, height = meta["width"], meta["height"]
+    waypoints = [list(map(float, w)) for w in waypoints]
 
     # -- per-flight hidden truth (unknown to the navigator) --
     wind_dir = rng.uniform(0, 360)
@@ -109,31 +152,92 @@ def simulate_flight(sess, img, meta, start_px, target_px, rng, *,
 
     # -- state --
     pos = np.array(start_px, dtype=float)          # true (px == m)
-    est = np.array(start_px, dtype=float)          # navigator's belief
+    if cold_start:
+        est = np.array([width / 2.0, height / 2.0])
+        t_last_accepted = -1e6                     # sigma_est huge -> k ~ 1
+    else:
+        est = np.array(start_px, dtype=float)      # navigator's belief
+        t_last_accepted = 0.0
     psi_true = rng.uniform(0, 360)                 # true heading
     psi_est = psi_true                             # believed heading (gyro-integrated)
     t = 0.0
     t_last_fix_attempt = -1e9
-    t_last_accepted = 0.0
     dist_flown = 0.0
 
-    direct_m = float(np.linalg.norm(np.array(target_px) - np.array(start_px))) * gsd
-    timeout = 3.0 * direct_m / AIRSPEED + 60.0
+    legs = [start_px] + waypoints
+    path_m = sum(float(np.linalg.norm(np.subtract(legs[i + 1], legs[i])))
+                 for i in range(len(legs) - 1)) * gsd
+    if loiter is not None:
+        path_m += float(np.linalg.norm(np.subtract(loiter["center"], legs[-1]))) * gsd
+    direct_m = path_m
+    timeout = 3.0 * path_m / AIRSPEED + 60.0
+    if loiter is not None:
+        timeout += loiter["duration_s"] + 120.0
 
-    track, fixes = [], []
+    track, fixes, wp_log, xtrack = [], [], [], []
     n_no_image = 0
     closest_true = float("inf")
     next_track_t = 0.0
     result = None
+    wi = 0                                          # current waypoint index
+    final_target = waypoints[-1] if waypoints else loiter["center"]
+    loiter_t0 = None
+    loiter_d = []                                   # true dist to centre while orbiting
+    localized_s = 0.0 if not cold_start else None   # first time |est - true| <= TARGET_M
+    est_err_max = 0.0
 
     while t < timeout:
         # ---- guidance (uses ONLY the navigator's belief) ----
-        to_target = np.array(target_px) - est
-        est_dist = float(np.linalg.norm(to_target)) * gsd
-        if est_dist < ARRIVE_RADIUS:
-            result = "arrived"
-            break
-        desired_psi = math.degrees(math.atan2(to_target[0], -to_target[1]))
+        if cold_start and t_last_accepted < 0:
+            # no position yet: hold a gentle circle until the first confident
+            # fix, instead of "arriving" somewhere on a guess
+            desired_psi = psi_est + 0.5 * MAX_TURN_RATE / GUIDANCE_GAIN
+            est_dist = float("inf")
+            approach = False
+        elif wi < len(waypoints):
+            tgt = np.array(waypoints[wi])
+            to_target = tgt - est
+            est_dist = float(np.linalg.norm(to_target)) * gsd
+            last = wi == len(waypoints) - 1 and loiter is None
+            reached = est_dist < ARRIVE_RADIUS
+            if not reached and not last:
+                prev = np.array(legs[wi])
+                leg = tgt - prev
+                reached = float(np.dot(est - tgt, leg)) > 0.0   # passed the perpendicular
+            if reached:
+                wp_log.append({"wp": wi, "t": round(t, 1),
+                               "true_miss_m": round(float(np.linalg.norm(tgt - pos)) * gsd, 1),
+                               "how": "radius" if est_dist < ARRIVE_RADIUS else "passed"})
+                wi += 1
+                if wi == len(waypoints) and loiter is None:
+                    result = "arrived"
+                    break
+                continue                            # re-plan on the next waypoint, same t
+            aim = to_target
+            if wi in track_legs:
+                # line following (ArduPlane L1-style): aim at a point
+                # L1_LOOKAHEAD ahead of our projection onto the planned leg
+                a_ = np.array(legs[wi])
+                ab = tgt - a_
+                L = float(np.linalg.norm(ab))
+                s_ = float(np.dot(est - a_, ab)) / max(L, 1e-9) + L1_LOOKAHEAD / gsd
+                aim = (a_ + ab * min(s_ / max(L, 1e-9), 1.0)) - est
+            desired_psi = math.degrees(math.atan2(aim[0], -aim[1]))
+            approach = last
+        else:                                       # loiter
+            c = np.array(loiter["center"])
+            to_c = c - est
+            d_est = float(np.linalg.norm(to_c)) * gsd
+            R = loiter["radius_m"]
+            if loiter_t0 is None and d_est < 1.5 * R:
+                loiter_t0 = t
+            if loiter_t0 is not None and t - loiter_t0 >= loiter["duration_s"]:
+                result = "completed"
+                break
+            bearing = math.degrees(math.atan2(to_c[0], -to_c[1]))
+            desired_psi = bearing - 90.0 + math.degrees(math.atan((d_est - R) / 50.0))
+            est_dist = d_est
+            approach = False
         r_cmd = float(np.clip(GUIDANCE_GAIN * wrap180(desired_psi - psi_est),
                               -MAX_TURN_RATE, MAX_TURN_RATE))
 
@@ -151,11 +255,25 @@ def simulate_flight(sess, img, meta, start_px, target_px, rng, *,
         psi_est = (psi_est + MAG_GAIN * wrap180(psi_mag - psi_est) * DT) % 360.0
         est += heading_vec(psi_est) * AIRSPEED * DT / gsd
 
-        true_dist = float(np.linalg.norm(np.array(target_px) - pos)) * gsd
+        true_dist = float(np.linalg.norm(np.array(final_target) - pos)) * gsd
         closest_true = min(closest_true, true_dist)
+        est_err = float(np.linalg.norm(est - pos)) * gsd
+        if localized_s is None and est_err <= TARGET_M:
+            localized_s = round(t, 1)
+        if localized_s is not None:
+            est_err_max = max(est_err_max, est_err)
+        if wi < len(waypoints) and wi in track_legs:
+            a_, b_ = np.array(legs[wi], float), np.array(waypoints[wi], float)
+            ab = b_ - a_
+            L = float(np.linalg.norm(ab)) * gsd
+            along = float(np.dot(pos - a_, ab)) / max(L / gsd, 1e-9) * gsd
+            if xtrack_trim_m <= along <= L - xtrack_trim_m:
+                xtrack.append(_seg_dist(pos, a_, b_) * gsd)
+        if loiter_t0 is not None:
+            loiter_d.append(float(np.linalg.norm(np.array(loiter["center"]) - pos)) * gsd)
 
         # ---- vision fix ----
-        interval = FIX_INTERVAL_APPROACH if est_dist < APPROACH_DIST else FIX_INTERVAL_CRUISE
+        interval = FIX_INTERVAL_APPROACH if (approach and est_dist < APPROACH_DIST) else FIX_INTERVAL_CRUISE
         if vision and t - t_last_fix_attempt >= interval:
             t_last_fix_attempt = t
             cx, cy = int(round(pos[0])), int(round(pos[1]))
@@ -199,13 +317,13 @@ def simulate_flight(sess, img, meta, start_px, target_px, rng, *,
             next_track_t += TRACK_EVERY
         t += DT
 
-    true_miss = float(np.linalg.norm(np.array(target_px) - pos)) * gsd
+    true_miss = float(np.linalg.norm(np.array(final_target) - pos)) * gsd
     n = {o: sum(1 for f in fixes if f["outcome"] == o)
          for o in ("usable", "abstain", "false_fix", "off_map")}
-    return {
-        "start_px": list(start_px), "target_px": list(target_px),
+    out = {
+        "start_px": list(start_px), "target_px": list(final_target),
         "start_lonlat": px_to_lonlat(meta, *start_px),
-        "target_lonlat": px_to_lonlat(meta, *target_px),
+        "target_lonlat": px_to_lonlat(meta, *final_target),
         "direct_m": round(direct_m, 1),
         "wind": {"speed_ms": round(wind_speed, 2), "dir_deg": round(wind_dir, 1)},
         "gyro_bias_dps": round(gyro_bias, 3),
@@ -220,6 +338,31 @@ def simulate_flight(sess, img, meta, start_px, target_px, rng, *,
         "fixes": fixes,
         "track": track,
     }
+    if len(waypoints) > 1 or loiter is not None:
+        out["waypoints_px"] = waypoints
+        out["waypoints"] = wp_log
+    if cold_start:
+        out["cold_start"] = True
+        out["localized_s"] = localized_s
+        first = next((f for f in fixes if f["outcome"] in ("usable", "false_fix")), None)
+        out["first_confident_fix"] = (None if first is None
+                                      else {"t": first["t"], "outcome": first["outcome"]})
+    out["est_err_max_m"] = round(est_err_max, 1)
+    if track_legs:
+        xa = np.array(xtrack) if xtrack else np.zeros(1)
+        out["xtrack"] = {"mean_m": round(float(xa.mean()), 1),
+                         "p95_m": round(float(np.percentile(xa, 95)), 1),
+                         "max_m": round(float(xa.max()), 1),
+                         "within_100m": round(float((xa <= TARGET_M).mean()), 4)}
+    if loiter is not None:
+        out["loiter"] = dict(loiter)
+        la = np.array(loiter_d) if loiter_d else np.array([np.inf])
+        out["loiter"].update({
+            "started_s": None if loiter_t0 is None else round(loiter_t0, 1),
+            "on_station": round(float((la <= loiter["radius_m"] + TARGET_M).mean()), 4),
+            "max_dist_m": round(float(la.max()), 1),
+            "mean_abs_radial_err_m": round(float(np.abs(la - loiter["radius_m"]).mean()), 1)})
+    return out
 
 
 def sample_endpoints(meta, rng, min_sep_m=2000.0):
