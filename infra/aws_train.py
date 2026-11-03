@@ -7,10 +7,10 @@ Same contract as infra/remote_train.sh and infra/modal_client.py: on success
 is 0; anything else is a failed train (loop.sh scores it 1e9). Issue #3.
 
 Two kinds of failure, kept apart (issue #13): the TRAINING failed (the box
-reported a non-zero exit, or ran past the deadline) -> exit 1; or the CLOUD
-failed and no answer about the model exists (no GPU capacity after waiting,
-the connection to AWS lost until the deadline, spot interrupted on every
-attempt) -> exit 75 and <local-out-dir>/infra_failure.txt holding the
+reported a non-zero exit) -> exit 1; or the CLOUD failed and no answer about
+the model exists (no GPU capacity after waiting, the connection to AWS lost
+until the deadline, spot interrupted on every attempt, or the machine hit
+its own AWS_MAX_MINUTES safety shutdown mid-training — issue #22) -> exit 75 and <local-out-dir>/infra_failure.txt holding the
 reason, which loop.sh records as NOT TESTED rather than as a refuted idea.
 
 How it works
@@ -32,7 +32,9 @@ How it works
 - No capacity is waited out: every zone, spot then on-demand, is retried
   every AWS_CAPACITY_RETRY_S for up to AWS_CAPACITY_WAIT_MIN before giving up.
 
-Env (all optional): AWS_INSTANCE_TYPE (g6.xlarge), AWS_MAX_MINUTES (150),
+Env (all optional): AWS_INSTANCE_TYPE (g6.xlarge), AWS_MAX_MINUTES (480; a
+guard against a forgotten machine, NOT a training budget — it was 150 until
+experiment 28, a 288 px model needing ~185 min, was cut off at epoch 6/8),
 AWS_CODE_REF (pack code from this git commit instead of the working tree),
 AWS_ONDEMAND_FALLBACK (1), AWS_RETRIES (1, re-launch after a spot
 interruption), AWS_AMI (override the Deep Learning AMI lookup),
@@ -370,7 +372,7 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
     job = f"jobs/{tag}"
     s3.put_object(Bucket=bucket, Key=f"{job}/code.tgz", Body=package_code())
 
-    max_minutes = int(os.environ.get("AWS_MAX_MINUTES", "150"))
+    max_minutes = int(os.environ.get("AWS_MAX_MINUTES", "480"))
     # Links must outlive the capacity wait plus the whole job.
     ttl = max_minutes * 60 + 3600 + int(os.environ.get("AWS_CAPACITY_WAIT_MIN", "90")) * 60
     sign = lambda op, key: s3.generate_presigned_url(
@@ -397,8 +399,9 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
                 if net_down:
                     raise InfraFailure("network lost until the hard deadline; "
                                        "no result could be fetched")
-                log("past the hard deadline without a result")
-                return "failed"
+                # the box's own safety shutdown fired: no verdict on the model
+                raise InfraFailure(f"no result by the AWS_MAX_MINUTES={max_minutes} "
+                                   f"safety deadline; the model was still training")
             try:
                 try:   # stream the box's log into ours (the dashboard reads it)
                     body = s3.get_object(Bucket=bucket, Key=f"{job}/box.log")["Body"].read()
@@ -431,7 +434,14 @@ def run_job(sess, area, out_dir, epochs, crops, attempt):
                 if time.time() - gone_since > 90:   # grace for a late upload
                     reason = state.get("StateReason", {}).get("Message", "?")
                     log(f"machine {st} without a result: {reason}")
-                    return "interrupted" if "Spot" in reason else "failed"
+                    if "Spot" in reason:
+                        return "interrupted"
+                    if time.time() - t_launch >= max_minutes * 60 - 300:
+                        # its scheduled `shutdown -h +max_minutes` fired: it ran
+                        # out of time, it did not fail (experiment 28)
+                        raise InfraFailure(f"machine hit its AWS_MAX_MINUTES={max_minutes} "
+                                           f"safety shutdown while still training")
+                    return "failed"
         if net_down:
             log(f"network back after {time.time() - net_down:.0f}s")
         buf = io.BytesIO(retry_net(
