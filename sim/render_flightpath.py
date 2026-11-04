@@ -1152,7 +1152,11 @@ function render(t){
       `<span style="color:${MUTED}">${fx.err_m!==undefined&&fx.outcome!=='abstain'?'answer '+fmt(fx.err_m)+' off':'&nbsp;'}</span>`;
   } else { camout.innerHTML='<span>&mdash; no fix yet</span><span>&nbsp;</span><span>&nbsp;</span>'; }
   const err=Math.hypot(p[1]-p[3],p[2]-p[4]);
-  const dist=Math.hypot(F.target_px[0]-p[1],F.target_px[1]-p[2]);
+  // The track is sampled once a second and stops up to a second before the
+  // flight ends; on the last frame show the simulator's own final distance,
+  // the number the headings quote (issue #25).
+  const atEnd=i===T.length-1&&F.final_true_dist_m!=null;
+  const dist=atEnd?F.final_true_dist_m:Math.hypot(F.target_px[0]-p[1],F.target_px[1]-p[2]);
   const toWord={loiter:'to orbit centre',return_home:'to home',survey:'to end of grid',spree:'to end of route',tour:'to last spot'}[F.mission]||'to target';
   read.innerHTML=`<div class="rd-h">${flightLabel}</div><dl class="rd">`+
     `<dt>estimate off by</dt><dd>${fmt(err)}</dd>`+
