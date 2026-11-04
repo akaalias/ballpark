@@ -207,7 +207,9 @@ actually begun memorizing. If your design improves the geometric mean while
    design that might get rejected before it ever runs was wasted work; this
    stage's only output is the decision itself.
 
-   `eli5` and `architecture` feed the human-facing gallery. `architecture.stages`
+   `eli5` and `architecture` feed the human-facing gallery. Call the aircraft
+   a **UAV**, never a "drone", in every field you write (house wording; the
+   site rewrites "drone" anyway, but write it right). `architecture.stages`
    is the model's inference path left-to-right, camera frame → (lat, lon,
    confidence) output — one box per stage, plain-language `detail`,
    `"changed": true` ONLY on the stages this experiment touches. Reuse the

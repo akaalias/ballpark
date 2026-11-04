@@ -149,4 +149,8 @@ cat > "$OUT/index_redirect_unused.html" <<'EOF'
 EOF
 rm -f "$OUT/index_redirect_unused.html"
 touch "$OUT/.nojekyll"
+# House wording (issue #24): "UAV", never "drone" — agent-written text in the
+# record says "drone"; the site copy is rewritten, and the build stops if any
+# is left.
+$PY -m autoresearch.wording "$OUT"
 echo "site assembled in $OUT/ — open $OUT/gallery/index.html to preview exactly what goes live"

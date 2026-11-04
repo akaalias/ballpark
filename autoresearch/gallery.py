@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from autoresearch import evofig, workedexample
+from autoresearch.wording import uav
 from autoresearch.db import REPO_ROOT, connect
 
 OUT = REPO_ROOT / "gallery" / "index.html"
@@ -4317,7 +4318,7 @@ machine-generated experiment record.</p>
 </div>
 {credits_html()}</body></html>"""
     NOTEBOOK_OUT.parent.mkdir(exist_ok=True)
-    NOTEBOOK_OUT.write_text(html_page)
+    NOTEBOOK_OUT.write_text(uav(html_page))
     print(f"wrote {NOTEBOOK_OUT}")
 
 
@@ -5136,7 +5137,7 @@ machine; the loop commits every result to git as it goes</p>
 {OVERLAY_HTML}
 <script>{MASONRY_JS}</script>
 {credits_html()}</body></html>"""
-    OVERVIEW_OUT.write_text(html_page)
+    OVERVIEW_OUT.write_text(uav(html_page))
     print(f"wrote {OVERVIEW_OUT}")
 
 
@@ -5418,7 +5419,7 @@ updated {now}</p>"""]
     body.append("""</div>
 """ + OVERLAY_HTML + credits_html() + "</body></html>")
     PATHS_OUT.parent.mkdir(exist_ok=True)
-    PATHS_OUT.write_text("\n".join(body))
+    PATHS_OUT.write_text(uav("\n".join(body)))
     print(f"wrote {PATHS_OUT} ({len(figs)} figures)")
 
 
@@ -6237,7 +6238,7 @@ results, and every result measured against them re-measured.</p></div>
 <script>{EVOLUTION_JS.replace("__LATEST_X__", f"{evofig.LATEST_X:.1f}")}</script>
 {credits_html()}</body></html>"""
     EVOLUTION_OUT.parent.mkdir(exist_ok=True)
-    EVOLUTION_OUT.write_text(body)
+    EVOLUTION_OUT.write_text(uav(body))
     print(f"wrote {EVOLUTION_OUT} (graph: {len(evofig.TRUNK_NODES)} trunk nodes, "
           f"{len(evofig.DEAD)} abandoned, {len(evofig.SUPER)} superseded, "
           f"{len(evofig.OPEN)} open)")
@@ -6642,7 +6643,7 @@ def render_lineage(exps):
 <script>{LINEAGE_JS}</script>
 {credits_html()}</body></html>"""
     LINEAGE_OUT.parent.mkdir(exist_ok=True)
-    LINEAGE_OUT.write_text(html_page)
+    LINEAGE_OUT.write_text(uav(html_page))
     print(f"wrote {LINEAGE_OUT} ({len(nodes)} nodes)")
 
 
@@ -6884,7 +6885,7 @@ agent model {esc(e.get('agent_model') or '—')} · took {fmt_dur(e.get('duratio
                 + "<script>" + PATHS_JS + "</script>" + credits_html()
                 + "</body></html>")
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text("\n".join(body))
+    OUT.write_text(uav("\n".join(body)))
     print(f"wrote {OUT} ({len(exps)} experiments)")
     render_paths(exps)
     render_lineage(exps)

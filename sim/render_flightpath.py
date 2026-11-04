@@ -22,6 +22,7 @@ from PIL import Image, ImageEnhance
 from autoresearch.gallery import (CSS, compute_banner, credits_html, rsec,
                                   social_meta, topnav)
 from pipeline.dataset import BLOCK_PX, WINDOW_PX, _window_hits_holdout, block_role
+from autoresearch.wording import uav
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 OUT = REPO_ROOT / "gallery" / "flight-path.html"
@@ -875,7 +876,7 @@ circles until its first confident fix.</li>
 </ul></div>
 <div><h3>Best-case caveats</h3><ul>
 <li>The camera is a <b>different aerial survey</b> than the training ones,
-not a real drone camera: no lens distortion, motion blur, night or sensor
+not a real UAV camera: no lens distortion, motion blur, night or sensor
 noise. It tests a photograph the model never saw, not sim-to-real
 transfer.</li>
 <li>Altitude is fixed at the trained 1 m/px scale; tilt and altitude
@@ -904,7 +905,7 @@ on the map.</p>
 <script>{charts_js(json.dumps(rows, separators=(',', ':')))}</script>
 {credits_html()}</body></html>"""
 
-    OUT.write_text(html)
+    OUT.write_text(uav(html))
     print(f"wrote {OUT} ({len(html) / 1024:.0f} KB)")
 
 

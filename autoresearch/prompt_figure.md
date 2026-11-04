@@ -23,7 +23,8 @@ fully-connected layers as fans of thin crossing lines between bars;
 spatial fields/grids as actually-drawn grids with shaded cells;
 decodes/aggregations as thin lines converging from cells onto a point;
 samplers/targets as small pictorial glyphs. Captions sit UNDER each
-element (name ≤10.5px weight 600, sub-note ≤9.5px); tensor shapes
+element (the aircraft is a "UAV" in every caption, never a "drone";
+house wording; name ≤10.5px weight 600, sub-note ≤9.5px); tensor shapes
 annotate the flow in small italics (128×128×3 → 8²×128 → 1024).
 Losses/targets/samplers live in a lane below the inference path,
 annotated with slanted dashed leader lines to small text — no boxes

@@ -406,6 +406,18 @@ break by accident:
 (it becomes a footer line) and the pulsing in-progress table row. Set it back
 to `live` before restarting the loop.
 
+### Site wording: "UAV", never "drone" (Alexis, issue #24)
+
+The project says UAV. Agent-written text in the record (experiment.json
+summaries, design figures in `experiments.sqlite`) often says "drone"; the
+record stays as written, and the pages are corrected on the way out:
+`autoresearch/wording.py` (`uav()`) is applied by every renderer when it
+writes a page (gallery.py, sim/render_flightpath.py), and
+`infra/build_site.sh` rewrites the `_site` copy and **fails the build if
+"drone" is left anywhere in it**. A new page writer must pass its output
+through `uav()`. The design and figure prompts ask for "UAV" too. Never
+write "drone" in site copy, captions, prompts' examples or social cards.
+
 ### Publishing does NOT use Git LFS — keep it that way
 
 On 2026-07-31 the account's LFS budget ran out and every Pages deploy died at
